@@ -89,7 +89,7 @@ jobs:
         fi
         
     - name: Upload MLflow Artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: mlflow-artifacts-${{ github.run_id }}
         path: |
@@ -124,7 +124,7 @@ jobs:
         echo "✅ Deployment package created"
         
     - name: Upload Deployment Package
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: deployment-package-${{ github.run_id }}
         path: MLProject/heart-disease-ml-deployment.tar.gz
@@ -140,7 +140,7 @@ jobs:
       uses: actions/checkout@v4
       
     - name: Download MLflow Artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: mlflow-artifacts-${{ github.run_id }}
         path: MLProject/
@@ -235,7 +235,7 @@ jobs:
         echo "https://hub.docker.com/r/${{ secrets.DOCKER_USERNAME }}/heart-disease-ml" > docker-hub-link.txt
         
     - name: Upload Docker Hub Link
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: docker-hub-link
         path: MLProject/docker-hub-link.txt
@@ -250,7 +250,7 @@ jobs:
       uses: actions/checkout@v4
       
     - name: Download Artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       
     - name: Create Release
       uses: actions/create-release@v1
