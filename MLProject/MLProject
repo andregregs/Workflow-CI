@@ -1,6 +1,6 @@
 name: heart-disease-ml
 
-conda_env: conda.yaml
+python_env: python
 
 entry_points:
   main:
@@ -11,12 +11,13 @@ entry_points:
       n_estimators: {type: int, default: 100}
       experiment_name: {type: string, default: "Heart_Disease_CI"}
       save_artifacts: {type: bool, default: true}
-      run_id: {type: string, default: ""}
-      commit_sha: {type: string, default: ""}
-    command: "python modelling.py --test_size {test_size} --random_state {random_state} --max_iter {max_iter} --n_estimators {n_estimators} --experiment_name {experiment_name} --save_artifacts {save_artifacts} --run_id {run_id} --commit_sha {commit_sha}"
+    command: "python modelling.py --test_size {test_size} --random_state {random_state} --max_iter {max_iter} --n_estimators {n_estimators} --experiment_name {experiment_name} --save_artifacts {save_artifacts}"
 
   train_models:
     parameters:
       experiment_name: {type: string, default: "Heart_Disease_CI"}
       save_artifacts: {type: bool, default: true}
     command: "python modelling.py --experiment_name {experiment_name} --save_artifacts {save_artifacts}"
+
+  local_test:
+    command: "python modelling.py --experiment_name Local_Test --test_size 0.2"
