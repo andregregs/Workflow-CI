@@ -43,7 +43,7 @@ jobs:
         
     # Step 3: Cache Python dependencies
     - name: Cache pip packages
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
@@ -131,7 +131,7 @@ jobs:
         
     # Step 8: Upload Training Artifacts
     - name: Upload Training Artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: heart-disease-ml-artifacts-${{ github.run_id }}
         path: |
@@ -187,7 +187,7 @@ jobs:
         
     # Step 10: Upload Deployment Package
     - name: Upload Deployment Package
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: deployment-package-${{ github.run_id }}
         path: MLProject/heart-disease-ml-deployment.tar.gz
@@ -206,7 +206,7 @@ jobs:
       
     # Step 2: Download artifacts from training job
     - name: Download Training Artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: heart-disease-ml-artifacts-${{ github.run_id }}
         path: MLProject/
@@ -310,7 +310,7 @@ jobs:
         
     # Step 7: Upload Docker Hub Link
     - name: Upload Docker Hub Link
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: docker-hub-link
         path: MLProject/docker-hub-link.txt
@@ -329,7 +329,7 @@ jobs:
       
     # Step 2: Download all artifacts
     - name: Download All Artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       continue-on-error: true
       
     # Step 3: Create Comprehensive Summary
@@ -390,7 +390,7 @@ jobs:
         
     # Step 4: Upload Summary Report
     - name: Upload Summary Report
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: pipeline-summary
         path: pipeline-summary.md
