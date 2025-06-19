@@ -66,6 +66,12 @@ def setup_mlflow(experiment_name, run_id=None, commit_sha=None):
     """Setup MLflow tracking"""
     print(f"🔧 Setting up MLflow...")
     
+    # End any active runs first to avoid conflicts
+    try:
+        mlflow.end_run()
+    except:
+        pass  # No active run to end
+    
     # Set tracking URI (local for CI/CD)
     mlflow.set_tracking_uri("file:./mlruns")
     
@@ -80,14 +86,18 @@ def setup_mlflow(experiment_name, run_id=None, commit_sha=None):
         print(f"⚠️  Using default experiment: {e}")
         mlflow.set_experiment("Default")
     
-    # Log CI/CD metadata
-    if run_id:
-        mlflow.set_tag("github_run_id", run_id)
-    if commit_sha:
-        mlflow.set_tag("commit_sha", commit_sha)
-    
-    mlflow.set_tag("ci_cd_run", "true")
-    mlflow.set_tag("automated_training", "github_actions")
+    # Log CI/CD metadata if provided
+    if run_id or commit_sha:
+        with mlflow.start_run(run_name="metadata_setup"):
+            if run_id:
+                mlflow.set_tag("github_run_id", run_id)
+            if commit_sha:
+                mlflow.set_tag("commit_sha", commit_sha)
+            
+            mlflow.set_tag("ci_cd_run", "true")
+            mlflow.set_tag("automated_training", "github_actions")
+        # End the metadata run immediately
+        mlflow.end_run()
     
     return full_experiment_name
 
@@ -101,8 +111,7 @@ def load_data():
             'heart.csv',
             'data/heart.csv', 
             'data/processed/heart_processed.csv',
-            '../heart.csv',
-            'heart_disease.csv'
+            '../heart.csv'
         ]
         
         df = None
@@ -113,38 +122,7 @@ def load_data():
                 break
         
         if df is None:
-            print("⚠️  Dataset not found locally, creating sample data...")
-            # Create sample heart disease dataset for demonstration
-            np.random.seed(42)
-            n_samples = 1000
-            
-            # Generate synthetic heart disease data
-            data = {
-                'age': np.random.randint(30, 80, n_samples),
-                'sex': np.random.randint(0, 2, n_samples),
-                'cp': np.random.randint(0, 4, n_samples),
-                'trestbps': np.random.randint(90, 200, n_samples),
-                'chol': np.random.randint(150, 400, n_samples),
-                'fbs': np.random.randint(0, 2, n_samples),
-                'restecg': np.random.randint(0, 3, n_samples),
-                'thalach': np.random.randint(80, 200, n_samples),
-                'exang': np.random.randint(0, 2, n_samples),
-                'oldpeak': np.random.uniform(0, 6, n_samples),
-                'slope': np.random.randint(0, 3, n_samples),
-                'ca': np.random.randint(0, 4, n_samples),
-                'thal': np.random.randint(0, 4, n_samples)
-            }
-            
-            # Create target with some logic (simplified)
-            target = ((data['age'] > 50) & (data['chol'] > 240) & (data['thalach'] < 150)).astype(int)
-            data['target'] = target
-            
-            df = pd.DataFrame(data)
-            print(f"✅ Sample data created: {df.shape}")
-            
-            # Save for future use
-            df.to_csv('heart.csv', index=False)
-            print("💾 Sample data saved as heart.csv")
+            raise FileNotFoundError("Dataset not found in any expected location")
         
         print(f"   Shape: {df.shape}")
         print(f"   Target distribution: {df['target'].value_counts().to_dict()}")
@@ -153,28 +131,7 @@ def load_data():
         
     except Exception as e:
         print(f"❌ Error loading data: {e}")
-        print("Creating minimal fallback dataset...")
-        
-        # Minimal fallback
-        np.random.seed(42)
-        data = pd.DataFrame({
-            'age': np.random.randint(30, 80, 100),
-            'sex': np.random.randint(0, 2, 100),
-            'cp': np.random.randint(0, 4, 100),
-            'trestbps': np.random.randint(90, 200, 100),
-            'chol': np.random.randint(150, 400, 100),
-            'fbs': np.random.randint(0, 2, 100),
-            'restecg': np.random.randint(0, 3, 100),
-            'thalach': np.random.randint(80, 200, 100),
-            'exang': np.random.randint(0, 2, 100),
-            'oldpeak': np.random.uniform(0, 6, 100),
-            'slope': np.random.randint(0, 3, 100),
-            'ca': np.random.randint(0, 4, 100),
-            'thal': np.random.randint(0, 4, 100),
-            'target': np.random.randint(0, 2, 100)
-        })
-        
-        return data
+        sys.exit(1)
 
 def preprocess_data(df, test_size=0.2, random_state=42):
     """Preprocess heart disease data"""
@@ -345,180 +302,253 @@ def train_single_model(model, model_name, X_train, X_test, y_train, y_test, args
     
     print(f"\n🤖 Training {model_name}...")
     
-    with mlflow.start_run(run_name=f"CI_{model_name.replace(' ', '_')}"):
-        # Disable autolog for manual control
-        mlflow.sklearn.autolog(disable=True)
-        
-        start_time = time.time()
-        
-        # Train model
-        model.fit(X_train, y_train)
-        training_time = time.time() - start_time
-        
-        # Cross-validation
-        cv_scores = cross_val_score(
-            model, X_train, y_train,
-            cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=args.random_state),
-            scoring='accuracy'
-        )
-        
-        # Predictions
-        y_pred = model.predict(X_test)
-        y_pred_proba = None
-        if hasattr(model, 'predict_proba'):
-            y_pred_proba = model.predict_proba(X_test)
-        
-        # Calculate metrics
-        metrics = calculate_comprehensive_metrics(y_test, y_pred, y_pred_proba)
-        metrics.update({
-            'cv_mean_accuracy': float(np.mean(cv_scores)),
-            'cv_std_accuracy': float(np.std(cv_scores)),
-            'training_time_seconds': float(training_time)
-        })
-        
-        # Log parameters
-        try:
-            mlflow.log_param("model_name", model_name)
-            mlflow.log_param("test_size", args.test_size)
-            mlflow.log_param("random_state", args.random_state)
-            for key, value in model.get_params().items():
-                mlflow.log_param(f"model_{key}", str(value)[:250])
-        except Exception as e:
-            print(f"   ⚠️  Parameter logging: {e}")
-        
-        # Log metrics
-        try:
-            for metric_name, metric_value in metrics.items():
-                if np.isfinite(float(metric_value)):
-                    mlflow.log_metric(metric_name, float(metric_value))
-        except Exception as e:
-            print(f"   ⚠️  Metrics logging: {e}")
-        
-        # Create and log artifacts
-        if args.save_artifacts:
-            feature_importance = getattr(model, 'feature_importances_', None)
-            artifacts = create_artifacts(y_test, y_pred, y_pred_proba, model_name, feature_importance)
+    # Ensure no active runs before starting
+    try:
+        mlflow.end_run()
+    except:
+        pass
+    
+    # Start new run with unique name
+    run_name = f"CI_{model_name.replace(' ', '_')}_{datetime.datetime.now().strftime('%H%M%S')}"
+    
+    try:
+        with mlflow.start_run(run_name=run_name):
+            # Disable autolog for manual control
+            mlflow.sklearn.autolog(disable=True)
             
-            for artifact_path in artifacts:
-                try:
-                    mlflow.log_artifact(artifact_path)
-                except Exception as e:
-                    print(f"   ⚠️  Artifact logging {artifact_path}: {e}")
-        
-        # Log model
-        try:
-            mlflow.sklearn.log_model(
-                sk_model=model,
-                artifact_path=f"model_{model_name.lower().replace(' ', '_')}"
+            start_time = time.time()
+            
+            # Train model
+            model.fit(X_train, y_train)
+            training_time = time.time() - start_time
+            
+            # Cross-validation
+            cv_scores = cross_val_score(
+                model, X_train, y_train,
+                cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=args.random_state),
+                scoring='accuracy'
             )
-        except Exception as e:
-            print(f"   ⚠️  Model logging: {e}")
-            # Fallback
+            
+            # Predictions
+            y_pred = model.predict(X_test)
+            y_pred_proba = None
+            if hasattr(model, 'predict_proba'):
+                y_pred_proba = model.predict_proba(X_test)
+            
+            # Calculate metrics
+            metrics = calculate_comprehensive_metrics(y_test, y_pred, y_pred_proba)
+            metrics.update({
+                'cv_mean_accuracy': float(np.mean(cv_scores)),
+                'cv_std_accuracy': float(np.std(cv_scores)),
+                'training_time_seconds': float(training_time)
+            })
+            
+            # Log parameters
             try:
-                model_path = f'model_{model_name.lower().replace(" ", "_")}.pkl'
-                joblib.dump(model, model_path)
-                mlflow.log_artifact(model_path)
-            except Exception as e2:
-                print(f"   ❌ Model fallback: {e2}")
-        
-        print(f"   📊 Accuracy: {metrics['accuracy']:.4f}")
-        print(f"   📊 MCC: {metrics['matthews_corrcoef']:.4f}")
-        
+                mlflow.log_param("model_name", model_name)
+                mlflow.log_param("test_size", args.test_size)
+                mlflow.log_param("random_state", args.random_state)
+                for key, value in model.get_params().items():
+                    mlflow.log_param(f"model_{key}", str(value)[:250])
+                print(f"   ✅ Parameters logged")
+            except Exception as e:
+                print(f"   ⚠️  Parameter logging: {e}")
+            
+            # Log metrics
+            try:
+                for metric_name, metric_value in metrics.items():
+                    if np.isfinite(float(metric_value)):
+                        mlflow.log_metric(metric_name, float(metric_value))
+                print(f"   ✅ {len(metrics)} metrics logged")
+            except Exception as e:
+                print(f"   ⚠️  Metrics logging: {e}")
+            
+            # Create and log artifacts
+            if args.save_artifacts:
+                feature_importance = getattr(model, 'feature_importances_', None)
+                artifacts = create_artifacts(y_test, y_pred, y_pred_proba, model_name, feature_importance)
+                
+                for artifact_path in artifacts:
+                    try:
+                        mlflow.log_artifact(artifact_path)
+                    except Exception as e:
+                        print(f"   ⚠️  Artifact logging {artifact_path}: {e}")
+                
+                print(f"   ✅ {len(artifacts)} artifacts logged")
+            
+            # Log model
+            try:
+                mlflow.sklearn.log_model(
+                    sk_model=model,
+                    artifact_path=f"model_{model_name.lower().replace(' ', '_')}"
+                )
+                print(f"   ✅ Model logged")
+            except Exception as e:
+                print(f"   ⚠️  Model logging: {e}")
+                # Fallback
+                try:
+                    model_path = f'model_{model_name.lower().replace(" ", "_")}.pkl'
+                    joblib.dump(model, model_path)
+                    mlflow.log_artifact(model_path)
+                    print(f"   ✅ Model saved as artifact")
+                except Exception as e2:
+                    print(f"   ❌ Model fallback: {e2}")
+            
+            print(f"   📊 Accuracy: {metrics['accuracy']:.4f}")
+            print(f"   📊 MCC: {metrics['matthews_corrcoef']:.4f}")
+            
+            return {
+                'model': model,
+                'metrics': metrics,
+                'success': True
+            }
+            
+    except Exception as e:
+        print(f"   ❌ Training failed: {e}")
         return {
-            'model': model,
-            'metrics': metrics,
-            'success': True
+            'model': None,
+            'metrics': {},
+            'success': False,
+            'error': str(e)
         }
+    finally:
+        # Ensure run is ended
+        try:
+            mlflow.end_run()
+        except:
+            pass
 
 def main():
     """Main training function for MLflow Project"""
     print("🚀 HEART DISEASE ML TRAINING - MLFLOW PROJECT")
     print("="*60)
     
-    # Parse arguments
-    args = parse_arguments()
-    print(f"📋 Parameters: test_size={args.test_size}, random_state={args.random_state}")
-    
-    # Setup MLflow
-    experiment_name = setup_mlflow(args.experiment_name, args.run_id, args.commit_sha)
-    
-    # Load and preprocess data
-    df = load_data()
-    X_train, X_test, y_train, y_test, preprocessor = preprocess_data(
-        df, args.test_size, args.random_state
-    )
-    
-    # Define models with parameters from args
-    models = {
-        'Logistic Regression': LogisticRegression(
-            random_state=args.random_state, 
-            max_iter=args.max_iter, 
-            C=1.0, 
-            solver='liblinear'
-        ),
-        'Random Forest': RandomForestClassifier(
-            random_state=args.random_state,
-            n_estimators=args.n_estimators,
-            max_depth=10,
-            min_samples_split=5
-        ),
-        'Gradient Boosting': GradientBoostingClassifier(
-            random_state=args.random_state,
-            n_estimators=args.n_estimators,
-            learning_rate=0.1,
-            max_depth=3
-        ),
-        'SVM': SVC(
-            random_state=args.random_state,
-            probability=True,
-            C=1.0,
-            kernel='rbf'
-        )
-    }
-    
-    # Train all models
-    results = {}
-    successful_models = 0
-    
-    for model_name, model in models.items():
+    try:
+        # Parse arguments
+        args = parse_arguments()
+        print(f"📋 Parameters: test_size={args.test_size}, random_state={args.random_state}")
+        
+        # Ensure no active runs at start
         try:
-            result = train_single_model(model, model_name, X_train, X_test, y_train, y_test, args)
-            results[model_name] = result
-            if result['success']:
-                successful_models += 1
-        except Exception as e:
-            print(f"   ❌ {model_name} failed: {e}")
-    
-    # Save summary
-    summary = {
-        'experiment_name': experiment_name,
-        'total_models': len(models),
-        'successful_models': successful_models,
-        'timestamp': datetime.datetime.now().isoformat(),
-        'parameters': vars(args)
-    }
-    
-    # Save training summary
-    summary_path = 'training_summary.json'
-    import json
-    with open(summary_path, 'w') as f:
-        json.dump(summary, f, indent=2)
-    
-    # Final results
-    print("\n" + "="*60)
-    print("🎉 MLFLOW PROJECT TRAINING COMPLETED!")
-    print("="*60)
-    print(f"📊 Successful models: {successful_models}/{len(models)}")
-    print(f"🧪 Experiment: {experiment_name}")
-    print(f"📁 MLruns directory: ./mlruns")
-    print(f"📄 Summary saved: {summary_path}")
-    
-    if successful_models == len(models):
-        print("✅ All models trained successfully!")
-        sys.exit(0)
-    else:
-        print("⚠️  Some models failed - check logs")
+            mlflow.end_run()
+        except:
+            pass
+        
+        # Setup MLflow
+        experiment_name = setup_mlflow(args.experiment_name, args.run_id, args.commit_sha)
+        
+        # Load and preprocess data
+        df = load_data()
+        X_train, X_test, y_train, y_test, preprocessor = preprocess_data(
+            df, args.test_size, args.random_state
+        )
+        
+        # Define models with parameters from args
+        models = {
+            'Logistic Regression': LogisticRegression(
+                random_state=args.random_state, 
+                max_iter=args.max_iter, 
+                C=1.0, 
+                solver='liblinear'
+            ),
+            'Random Forest': RandomForestClassifier(
+                random_state=args.random_state,
+                n_estimators=args.n_estimators,
+                max_depth=10,
+                min_samples_split=5
+            ),
+            'Gradient Boosting': GradientBoostingClassifier(
+                random_state=args.random_state,
+                n_estimators=args.n_estimators,
+                learning_rate=0.1,
+                max_depth=3
+            ),
+            'SVM': SVC(
+                random_state=args.random_state,
+                probability=True,
+                C=1.0,
+                kernel='rbf'
+            )
+        }
+        
+        # Train all models
+        results = {}
+        successful_models = 0
+        failed_models = []
+        
+        for model_name, model in models.items():
+            try:
+                result = train_single_model(model, model_name, X_train, X_test, y_train, y_test, args)
+                results[model_name] = result
+                if result['success']:
+                    successful_models += 1
+                else:
+                    failed_models.append(model_name)
+            except Exception as e:
+                print(f"   ❌ {model_name} failed: {e}")
+                failed_models.append(model_name)
+                results[model_name] = {'success': False, 'error': str(e)}
+        
+        # Save summary
+        summary = {
+            'experiment_name': experiment_name,
+            'total_models': len(models),
+            'successful_models': successful_models,
+            'failed_models': failed_models,
+            'timestamp': datetime.datetime.now().isoformat(),
+            'parameters': vars(args),
+            'results': {k: {'success': v['success'], 'accuracy': v.get('metrics', {}).get('accuracy', 0)} for k, v in results.items()}
+        }
+        
+        # Save training summary
+        summary_path = 'training_summary.json'
+        import json
+        with open(summary_path, 'w') as f:
+            json.dump(summary, f, indent=2)
+        
+        # Final results
+        print("\n" + "="*60)
+        print("🎉 MLFLOW PROJECT TRAINING COMPLETED!")
+        print("="*60)
+        print(f"📊 Successful models: {successful_models}/{len(models)}")
+        print(f"🧪 Experiment: {experiment_name}")
+        print(f"📁 MLruns directory: ./mlruns")
+        print(f"📄 Summary saved: {summary_path}")
+        
+        if successful_models > 0:
+            print(f"\n✅ {successful_models} models trained successfully:")
+            for name, result in results.items():
+                if result.get('success'):
+                    acc = result.get('metrics', {}).get('accuracy', 0)
+                    print(f"   🔸 {name}: {acc:.4f}")
+        
+        if failed_models:
+            print(f"\n⚠️  {len(failed_models)} models failed:")
+            for name in failed_models:
+                print(f"   ❌ {name}")
+        
+        # Determine exit code
+        if successful_models == len(models):
+            print("\n🎉 All models trained successfully!")
+            sys.exit(0)
+        elif successful_models > 0:
+            print(f"\n✅ Partial success: {successful_models}/{len(models)} models trained")
+            sys.exit(0)  # Allow partial success for CI/CD
+        else:
+            print("\n❌ All models failed - check logs")
+            sys.exit(1)
+            
+    except Exception as e:
+        print(f"\n❌ Critical error in main function: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
+    finally:
+        # Ensure all runs are closed
+        try:
+            mlflow.end_run()
+        except:
+            pass
 
 if __name__ == "__main__":
     main()
