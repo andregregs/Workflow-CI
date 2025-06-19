@@ -1,6 +1,6 @@
 name: heart-disease-ml
 
-python_env: conda.yaml
+python_env: python_env.yaml
 
 entry_points:
   main:
