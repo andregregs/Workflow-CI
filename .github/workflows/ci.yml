@@ -1,5 +1,6 @@
 name: Heart Disease ML CI/CD Pipeline
 
+# Trigger workflow
 on:
   push:
     branches: [ main, develop ]
@@ -8,7 +9,7 @@ on:
       - '.github/workflows/**'
   pull_request:
     branches: [ main ]
-  workflow_dispatch:
+  workflow_dispatch:  # Manual trigger
     inputs:
       experiment_name:
         description: 'MLflow Experiment Name'
@@ -25,30 +26,36 @@ env:
   DOCKER_REGISTRY: docker.io
 
 jobs:
+  # Job 1: MLflow Project Training
   mlflow-training:
     runs-on: ubuntu-latest
     
     steps:
+    # Step 1: Checkout code
     - name: Checkout Repository
       uses: actions/checkout@v4
       
+    # Step 2: Set up Python
     - name: Set up Python 3.9
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
         
+    # Step 3: Set up Conda
     - name: Set up Conda
       uses: conda-incubator/setup-miniconda@v2
       with:
         auto-update-conda: true
         python-version: 3.9
         
+    # Step 4: Install MLflow
     - name: Install MLflow
       run: |
         pip install mlflow>=2.8.0
         pip install click>=8.0.0
         mlflow --version
         
+    # Step 5: Validate MLProject
     - name: Validate MLProject Structure
       run: |
         echo "=== Checking MLProject Structure ==="
@@ -58,14 +65,22 @@ jobs:
         echo "=== Conda Environment ==="
         cat MLProject/conda.yaml
         
+    # Step 6: Run MLflow Project
     - name: Run MLflow Project Training
       run: |
         cd MLProject
         echo "🚀 Running MLflow Project..."
         
+        # Set environment variables
+        export MLFLOW_DISABLE_ENV_MANAGER_CONDA_WARNING=TRUE
+        
+        # Set parameters
         TEST_SIZE="${{ github.event.inputs.test_size || '0.2' }}"
         EXPERIMENT_NAME="${{ github.event.inputs.experiment_name || 'Heart_Disease_CI' }}"
         
+        echo "Parameters: test_size=$TEST_SIZE, experiment=$EXPERIMENT_NAME"
+        
+        # Run MLflow project with main entry point
         mlflow run . \
           --env-manager=conda \
           --experiment-name="$EXPERIMENT_NAME" \
@@ -73,11 +88,14 @@ jobs:
           -P random_state=42 \
           -P max_iter=1000 \
           -P n_estimators=100 \
+          -P experiment_name="$EXPERIMENT_NAME" \
+          -P save_artifacts=true \
           -P run_id="${{ github.run_id }}" \
           -P commit_sha="${{ github.sha }}"
           
         echo "✅ MLflow Project completed"
         
+    # Step 7: List Generated Artifacts
     - name: List MLflow Artifacts
       run: |
         echo "=== MLflow Runs Directory ==="
@@ -88,6 +106,7 @@ jobs:
           cat MLProject/training_summary.json
         fi
         
+    # Step 8: Upload Artifacts to GitHub
     - name: Upload MLflow Artifacts
       uses: actions/upload-artifact@v4
       with:
@@ -100,29 +119,36 @@ jobs:
           MLProject/training_summary.json
         retention-days: 30
         
+    # Step 9: Create Deployment Package
     - name: Create Deployment Package
       run: |
         cd MLProject
         echo "📦 Creating deployment package..."
         
+        # Create deployment directory
         mkdir -p deployment
         
+        # Copy essential files
         cp modelling.py deployment/
         cp MLProject deployment/
         cp conda.yaml deployment/
         cp training_summary.json deployment/ 2>/dev/null || echo "No summary file"
         
+        # Copy best model (if exists)
         find mlruns -name "*.pkl" -type f | head -1 | xargs -I {} cp {} deployment/best_model.pkl 2>/dev/null || echo "No pickle model found"
         
+        # Create deployment info
         echo "# Heart Disease ML Deployment Package" > deployment/README.md
         echo "Generated: $(date)" >> deployment/README.md
         echo "Commit: ${{ github.sha }}" >> deployment/README.md
         echo "Run ID: ${{ github.run_id }}" >> deployment/README.md
         
+        # Archive deployment package
         tar -czf heart-disease-ml-deployment.tar.gz deployment/
         
         echo "✅ Deployment package created"
         
+    # Step 10: Upload Deployment Package
     - name: Upload Deployment Package
       uses: actions/upload-artifact@v4
       with:
@@ -130,69 +156,85 @@ jobs:
         path: MLProject/heart-disease-ml-deployment.tar.gz
         retention-days: 90
 
+  # Job 2: Docker Build and Push (Advance requirement)
   docker-build:
     runs-on: ubuntu-latest
     needs: mlflow-training
     if: github.ref == 'refs/heads/main'
     
     steps:
+    # Step 1: Checkout code
     - name: Checkout Repository
       uses: actions/checkout@v4
       
+    # Step 2: Download artifacts from training job
     - name: Download MLflow Artifacts
       uses: actions/download-artifact@v4
       with:
         name: mlflow-artifacts-${{ github.run_id }}
         path: MLProject/
         
+    # Step 3: Set up Docker Buildx
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v2
       
+    # Step 4: Login to Docker Hub
     - name: Login to Docker Hub
       uses: docker/login-action@v2
       with:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
         
+    # Step 5: Install MLflow for Docker build
     - name: Install MLflow
       run: |
         pip install mlflow>=2.8.0
         pip install docker>=6.0.0
         
+    # Step 6: Build Docker Image with MLflow
     - name: Build Docker Image with MLflow
       run: |
         cd MLProject
         
         echo "🐳 Building Docker image with MLflow..."
         
+        # Find the best model run
         BEST_RUN_ID=$(find mlruns -name "*.pkl" -type f | head -1 | cut -d'/' -f3)
         
         if [ -z "$BEST_RUN_ID" ]; then
           echo "⚠️  No model run found, creating standalone Docker image"
           
-          cat > Dockerfile << 'EOF'
+          # Create simple Dockerfile
+          cat > Dockerfile << EOF
         FROM python:3.9-slim
 
         WORKDIR /app
 
+        # Copy environment file
         COPY conda.yaml requirements.txt* ./
 
+        # Install dependencies
         RUN pip install mlflow pandas numpy scikit-learn matplotlib seaborn joblib
 
+        # Copy application files
         COPY modelling.py MLProject ./
         COPY *.png *.pkl *.json ./
 
+        # Expose MLflow port
         EXPOSE 5000
 
+        # Default command
         CMD ["mlflow", "models", "serve", "--no-conda", "--host", "0.0.0.0", "--port", "5000"]
         EOF
           
+          # Build with Docker
           docker build -t ${{ secrets.DOCKER_USERNAME }}/heart-disease-ml:latest .
           docker build -t ${{ secrets.DOCKER_USERNAME }}/heart-disease-ml:${{ github.run_id }} .
           
         else
           echo "🎯 Found model run: $BEST_RUN_ID"
           
+          # Try MLflow build-docker (may not work in all environments)
           mlflow models build-docker \
             --model-uri "runs:/$BEST_RUN_ID/model_random_forest" \
             --name "${{ secrets.DOCKER_USERNAME }}/heart-disease-ml:latest" \
@@ -200,22 +242,29 @@ jobs:
             
             echo "⚠️  MLflow build-docker failed, using fallback method"
             
-            cat > Dockerfile << 'EOF'
+            # Fallback: Create manual Dockerfile
+            cat > Dockerfile << EOF
         FROM python:3.9-slim
 
         WORKDIR /app
 
+        # Install MLflow and dependencies
         RUN pip install mlflow pandas numpy scikit-learn matplotlib seaborn joblib
 
+        # Copy MLflow run
         COPY mlruns ./mlruns
 
+        # Copy application files
         COPY modelling.py MLProject conda.yaml ./
 
+        # Expose port
         EXPOSE 5000
 
+        # Serve model
         CMD ["mlflow", "models", "serve", "--model-uri", "runs:/$BEST_RUN_ID/model_random_forest", "--host", "0.0.0.0", "--port", "5000"]
         EOF
             
+            # Build with Docker
             docker build -t ${{ secrets.DOCKER_USERNAME }}/heart-disease-ml:latest .
             docker build -t ${{ secrets.DOCKER_USERNAME }}/heart-disease-ml:${{ github.run_id }} .
           }
@@ -223,6 +272,7 @@ jobs:
         
         echo "✅ Docker image built successfully"
         
+    # Step 7: Push Docker Image
     - name: Push Docker Image to Docker Hub
       run: |
         echo "🚀 Pushing Docker image to Docker Hub..."
@@ -232,26 +282,32 @@ jobs:
         
         echo "✅ Docker image pushed successfully"
         
+        # Create Docker Hub link file
         echo "https://hub.docker.com/r/${{ secrets.DOCKER_USERNAME }}/heart-disease-ml" > docker-hub-link.txt
         
+    # Step 8: Upload Docker Hub Link
     - name: Upload Docker Hub Link
       uses: actions/upload-artifact@v4
       with:
         name: docker-hub-link
         path: MLProject/docker-hub-link.txt
 
+  # Job 3: Create Release (if on main branch)
   create-release:
     runs-on: ubuntu-latest
     needs: [mlflow-training, docker-build]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     
     steps:
+    # Step 1: Checkout code
     - name: Checkout Repository
       uses: actions/checkout@v4
       
+    # Step 2: Download all artifacts
     - name: Download Artifacts
       uses: actions/download-artifact@v4
       
+    # Step 3: Create Release
     - name: Create Release
       uses: actions/create-release@v1
       env:
@@ -264,7 +320,7 @@ jobs:
           
           **Run ID:** ${{ github.run_id }}
           **Commit:** ${{ github.sha }}
-          **Date:** ${{ github.event.head_commit.timestamp }}
+          **Date:** $(date)
           
           ### What's Included:
           - ✅ MLflow Project with 4 trained models
