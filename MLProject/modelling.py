@@ -1,486 +1,393 @@
-"""
-Simple MLflow Project Compatible Heart Disease Model Training (FIXED)
-Author: Andre
-Date: June 2025
-Description: Fixed version that handles MLflow run conflicts properly
-"""
-
 import os
 import sys
-import argparse
+import json
+import time
+import click
+import joblib
 import pandas as pd
 import numpy as np
-import joblib
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 import mlflow
 import mlflow.sklearn
-from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
-from sklearn.impute import SimpleImputer
+from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
-from sklearn.metrics import (accuracy_score, precision_score, recall_score, f1_score,
-                           classification_report, confusion_matrix, roc_auc_score,
-                           roc_curve, precision_recall_curve, auc, log_loss,
-                           matthews_corrcoef, balanced_accuracy_score)
-import matplotlib
-matplotlib.use('Agg')  # Use non-interactive backend
-import matplotlib.pyplot as plt
-import seaborn as sns
-import time
-import datetime
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score,
+    roc_auc_score, average_precision_score, matthews_corrcoef,
+    balanced_accuracy_score, log_loss, confusion_matrix,
+    classification_report, roc_curve, precision_recall_curve
+)
 import warnings
 warnings.filterwarnings('ignore')
 
-def parse_arguments():
-    """Parse command line arguments for MLflow Project"""
-    parser = argparse.ArgumentParser(description='Heart Disease ML Training')
-    
-    # Data parameters
-    parser.add_argument('--test_size', type=float, default=0.2,
-                       help='Test set size ratio (default: 0.2)')
-    parser.add_argument('--random_state', type=int, default=42,
-                       help='Random state for reproducibility (default: 42)')
-    
-    # Model parameters
-    parser.add_argument('--max_iter', type=int, default=1000,
-                       help='Maximum iterations for LogisticRegression (default: 1000)')
-    parser.add_argument('--n_estimators', type=int, default=100,
-                       help='Number of estimators for ensemble methods (default: 100)')
-    
-    # MLflow parameters
-    parser.add_argument('--experiment_name', type=str, default='Heart_Disease_CI',
-                       help='MLflow experiment name (default: Heart_Disease_CI)')
-    parser.add_argument('--save_artifacts', type=bool, default=True,
-                       help='Save artifacts to MLflow (default: True)')
-    
-    # CI/CD parameters
-    parser.add_argument('--run_id', type=str, default=None,
-                       help='GitHub run ID for tracking (default: None)')
-    parser.add_argument('--commit_sha', type=str, default=None,
-                       help='Git commit SHA for tracking (default: None)')
-    
-    return parser.parse_args()
+# Set style for plots
+plt.style.use('seaborn-v0_8')
+sns.set_palette("husl")
 
-def setup_mlflow_clean(experiment_name):
-    """Setup MLflow with clean state"""
-    print(f"🔧 Setting up MLflow...")
-    
-    # Force end any existing runs
-    try:
-        while mlflow.active_run():
-            mlflow.end_run()
-    except:
-        pass
-    
-    # Set tracking URI
-    mlflow.set_tracking_uri("file:./mlruns")
-    
-    # Create unique experiment name
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    full_experiment_name = f"{experiment_name}_{timestamp}"
-    
-    try:
-        mlflow.set_experiment(full_experiment_name)
-        print(f"✅ Experiment: {full_experiment_name}")
-    except Exception as e:
-        print(f"⚠️  Using default experiment: {e}")
-        mlflow.set_experiment("Default")
-        full_experiment_name = "Default"
-    
-    return full_experiment_name
-
-def load_data():
-    """Load heart disease dataset"""
+def load_heart_disease_data():
+    """
+    Load heart disease dataset from preprocessed files
+    """
     print("📊 Loading heart disease dataset...")
     
-    # Try multiple possible locations
-    data_paths = [
-        'heart.csv',
-        'data/heart.csv', 
-        'data/processed/heart_processed.csv',
-        '../heart.csv',
-        '../Membangun_model/heart.csv'
+    # Try different possible locations for the data
+    data_files = [
+        'heart_processed.csv',
+        'heart_preprocessing/heart_processed.csv',
+        '../heart_preprocessing/heart_processed.csv',
+        'data/heart_processed.csv'
     ]
     
     df = None
-    for path in data_paths:
-        if os.path.exists(path):
-            df = pd.read_csv(path)
-            print(f"✅ Data loaded from: {path}")
+    for data_file in data_files:
+        if os.path.exists(data_file):
+            df = pd.read_csv(data_file)
+            print(f"✅ Data loaded from: {data_file}")
             break
     
     if df is None:
-        print("❌ Dataset not found. Creating dummy data for testing...")
-        # Create dummy data for testing
+        print("❌ Preprocessed data not found. Generating sample data...")
+        # Generate sample data for demonstration
         np.random.seed(42)
         n_samples = 1000
+        
+        # Generate features similar to heart disease dataset
         data = {
-            'age': np.random.randint(29, 77, n_samples),
-            'sex': np.random.randint(0, 2, n_samples),
+            'age': np.random.normal(54, 9, n_samples),
+            'sex': np.random.binomial(1, 0.7, n_samples),
             'cp': np.random.randint(0, 4, n_samples),
-            'trestbps': np.random.randint(94, 200, n_samples),
-            'chol': np.random.randint(126, 564, n_samples),
-            'fbs': np.random.randint(0, 2, n_samples),
+            'trestbps': np.random.normal(131, 17, n_samples),
+            'chol': np.random.normal(246, 51, n_samples),
+            'fbs': np.random.binomial(1, 0.15, n_samples),
             'restecg': np.random.randint(0, 3, n_samples),
-            'thalach': np.random.randint(71, 202, n_samples),
-            'exang': np.random.randint(0, 2, n_samples),
-            'oldpeak': np.random.uniform(0, 6.2, n_samples),
+            'thalach': np.random.normal(149, 22, n_samples),
+            'exang': np.random.binomial(1, 0.33, n_samples),
+            'oldpeak': np.random.exponential(1, n_samples),
             'slope': np.random.randint(0, 3, n_samples),
             'ca': np.random.randint(0, 4, n_samples),
             'thal': np.random.randint(0, 4, n_samples),
-            'target': np.random.randint(0, 2, n_samples)
         }
+        
+        # Generate target with some correlation
+        features_sum = (data['age'] > 55).astype(int) + \
+                      data['sex'] + \
+                      (data['cp'] > 2).astype(int) + \
+                      (data['thalach'] < 140).astype(int)
+        
+        target_prob = 1 / (1 + np.exp(-(features_sum - 2)))
+        data['target'] = np.random.binomial(1, target_prob, n_samples)
+        
         df = pd.DataFrame(data)
-        print("✅ Dummy data created for testing")
+        print("✅ Sample dataset generated")
     
-    print(f"   Shape: {df.shape}")
-    if 'target' in df.columns:
-        print(f"   Target distribution: {df['target'].value_counts().to_dict()}")
+    print(f"Dataset shape: {df.shape}")
+    print(f"Target distribution: {df['target'].value_counts().to_dict()}")
     
     return df
 
-def preprocess_data(df, test_size=0.2, random_state=42):
-    """Preprocess heart disease data"""
-    print("🔄 Preprocessing data...")
+def calculate_comprehensive_metrics(y_true, y_pred, y_pred_proba=None):
+    """
+    Calculate comprehensive metrics for model evaluation
+    """
+    metrics = {}
     
-    # Separate features and target
-    X = df.drop('target', axis=1)
-    y = df['target']
+    # Standard classification metrics
+    metrics['accuracy'] = accuracy_score(y_true, y_pred)
+    metrics['precision'] = precision_score(y_true, y_pred, average='weighted', zero_division=0)
+    metrics['recall'] = recall_score(y_true, y_pred, average='weighted', zero_division=0)
+    metrics['f1_score'] = f1_score(y_true, y_pred, average='weighted', zero_division=0)
+    metrics['balanced_accuracy'] = balanced_accuracy_score(y_true, y_pred)
     
-    # Define feature types (basic approach for compatibility)
-    numeric_features = ['age', 'trestbps', 'chol', 'thalach', 'oldpeak']
-    categorical_features = ['sex', 'cp', 'fbs', 'restecg', 'exang', 'slope', 'ca', 'thal']
+    # Matthews Correlation Coefficient
+    metrics['matthews_corrcoef'] = matthews_corrcoef(y_true, y_pred)
     
-    # Keep only features that exist in the dataset
-    numeric_features = [f for f in numeric_features if f in X.columns]
-    categorical_features = [f for f in categorical_features if f in X.columns]
+    # Confusion matrix based metrics
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
     
-    # Create preprocessing pipeline
-    numeric_transformer = Pipeline(steps=[
-        ('imputer', SimpleImputer(strategy='median')),
-        ('scaler', StandardScaler())
-    ])
+    # Specificity (True Negative Rate)
+    metrics['specificity'] = tn / (tn + fp) if (tn + fp) > 0 else 0
     
-    categorical_transformer = Pipeline(steps=[
-        ('imputer', SimpleImputer(strategy='most_frequent')),
-        ('onehot', OneHotEncoder(handle_unknown='ignore', drop='first'))
-    ])
+    # Negative Predictive Value
+    metrics['npv'] = tn / (tn + fn) if (tn + fn) > 0 else 0
     
-    preprocessor = ColumnTransformer(
-        transformers=[
-            ('num', numeric_transformer, numeric_features),
-            ('cat', categorical_transformer, categorical_features)
-        ])
+    # False Positive Rate
+    metrics['fpr'] = fp / (fp + tn) if (fp + tn) > 0 else 0
     
-    # Split data
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=random_state, stratify=y
-    )
+    # False Discovery Rate
+    metrics['fdr'] = fp / (fp + tp) if (fp + tp) > 0 else 0
     
-    # Fit and transform
-    X_train_processed = preprocessor.fit_transform(X_train)
-    X_test_processed = preprocessor.transform(X_test)
-    
-    print(f"✅ Preprocessing completed")
-    print(f"   Training set: {X_train_processed.shape}")
-    print(f"   Test set: {X_test_processed.shape}")
-    
-    return X_train_processed, X_test_processed, y_train, y_test, preprocessor
-
-def calculate_metrics(y_true, y_pred, y_pred_proba):
-    """Calculate comprehensive metrics"""
-    
-    # Basic metrics
-    accuracy = accuracy_score(y_true, y_pred)
-    precision = precision_score(y_true, y_pred, average='binary')
-    recall = recall_score(y_true, y_pred, average='binary')
-    f1 = f1_score(y_true, y_pred, average='binary')
-    
-    # Advanced metrics
-    roc_auc = 0.0
-    pr_auc = 0.0
-    logloss = 0.0
-    
+    # Probability-based metrics (if available)
     if y_pred_proba is not None:
-        try:
-            roc_auc = roc_auc_score(y_true, y_pred_proba[:, 1])
-            precision_curve, recall_curve, _ = precision_recall_curve(y_true, y_pred_proba[:, 1])
-            pr_auc = auc(recall_curve, precision_curve)
-            logloss = log_loss(y_true, y_pred_proba)
-        except:
-            pass
+        metrics['roc_auc'] = roc_auc_score(y_true, y_pred_proba[:, 1])
+        metrics['pr_auc'] = average_precision_score(y_true, y_pred_proba[:, 1])
+        metrics['log_loss'] = log_loss(y_true, y_pred_proba)
     
-    # Additional metrics
-    mcc = matthews_corrcoef(y_true, y_pred)
-    balanced_acc = balanced_accuracy_score(y_true, y_pred)
-    
-    # Confusion matrix derived metrics
-    try:
-        tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
-        specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
-        npv = tn / (tn + fn) if (tn + fn) > 0 else 0.0
-        fpr = fp / (fp + tn) if (fp + tn) > 0 else 0.0
-        fdr = fp / (fp + tp) if (fp + tp) > 0 else 0.0
-    except:
-        specificity = npv = fpr = fdr = 0.0
-    
-    return {
-        'accuracy': float(accuracy),
-        'precision': float(precision),
-        'recall': float(recall),
-        'f1_score': float(f1),
-        'roc_auc': float(roc_auc),
-        'matthews_corrcoef': float(mcc),
-        'balanced_accuracy': float(balanced_acc),
-        'log_loss': float(logloss),
-        'pr_auc': float(pr_auc),
-        'specificity': float(specificity),
-        'npv': float(npv),
-        'fpr': float(fpr),
-        'fdr': float(fdr)
-    }
+    return metrics
 
-def create_simple_artifacts(y_true, y_pred, model_name):
-    """Create simple artifacts without complex plotting"""
-    artifacts = []
-    
+def create_model_visualizations(model, model_name, X_test, y_test, y_pred, y_pred_proba=None, save_artifacts=True):
+    """
+    Create and save model visualizations
+    """
+    if not save_artifacts:
+        return
+        
     try:
-        # Simple confusion matrix
-        plt.figure(figsize=(6, 5))
-        cm = confusion_matrix(y_true, y_pred)
-        plt.imshow(cm, interpolation='nearest', cmap='Blues')
+        # 1. Confusion Matrix
+        plt.figure(figsize=(8, 6))
+        cm = confusion_matrix(y_test, y_pred)
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                   xticklabels=['No Disease', 'Disease'],
+                   yticklabels=['No Disease', 'Disease'])
         plt.title(f'Confusion Matrix - {model_name}')
-        plt.colorbar()
+        plt.xlabel('Predicted')
+        plt.ylabel('Actual')
         
-        # Add text annotations
-        for i in range(cm.shape[0]):
-            for j in range(cm.shape[1]):
-                plt.text(j, i, str(cm[i, j]), ha='center', va='center')
-        
-        plt.ylabel('True Label')
-        plt.xlabel('Predicted Label')
-        
-        cm_path = f'confusion_matrix_{model_name.lower().replace(" ", "_")}.png'
-        plt.savefig(cm_path, dpi=100, bbox_inches='tight')
+        cm_filename = f'confusion_matrix_{model_name.lower().replace(" ", "_")}.png'
+        plt.savefig(cm_filename, dpi=300, bbox_inches='tight')
+        mlflow.log_artifact(cm_filename)
         plt.close()
-        artifacts.append(cm_path)
         
+        # 2. ROC Curve (if probabilities available)
+        if y_pred_proba is not None:
+            plt.figure(figsize=(8, 6))
+            fpr, tpr, _ = roc_curve(y_test, y_pred_proba[:, 1])
+            auc_score = roc_auc_score(y_test, y_pred_proba[:, 1])
+            
+            plt.plot(fpr, tpr, linewidth=2, label=f'{model_name} (AUC = {auc_score:.3f})')
+            plt.plot([0, 1], [0, 1], 'k--', linewidth=1, label='Random Classifier')
+            plt.xlabel('False Positive Rate')
+            plt.ylabel('True Positive Rate')
+            plt.title(f'ROC Curve - {model_name}')
+            plt.legend()
+            plt.grid(True, alpha=0.3)
+            
+            roc_filename = f'roc_curve_{model_name.lower().replace(" ", "_")}.png'
+            plt.savefig(roc_filename, dpi=300, bbox_inches='tight')
+            mlflow.log_artifact(roc_filename)
+            plt.close()
+        
+        # 3. Feature Importance (if available)
+        if hasattr(model, 'feature_importances_'):
+            plt.figure(figsize=(10, 6))
+            feature_names = [f'Feature_{i}' for i in range(len(model.feature_importances_))]
+            importance_df = pd.DataFrame({
+                'feature': feature_names,
+                'importance': model.feature_importances_
+            }).sort_values('importance', ascending=True).tail(15)
+            
+            plt.barh(importance_df['feature'], importance_df['importance'])
+            plt.xlabel('Feature Importance')
+            plt.title(f'Top 15 Feature Importances - {model_name}')
+            plt.tight_layout()
+            
+            fi_filename = f'feature_importance_{model_name.lower().replace(" ", "_")}.png'
+            plt.savefig(fi_filename, dpi=300, bbox_inches='tight')
+            mlflow.log_artifact(fi_filename)
+            plt.close()
+            
+            # Save feature importance as CSV
+            fi_csv_filename = f'feature_importance_{model_name.lower().replace(" ", "_")}.csv'
+            importance_df.to_csv(fi_csv_filename, index=False)
+            mlflow.log_artifact(fi_csv_filename)
+            
     except Exception as e:
-        print(f"   ⚠️  Artifact creation error: {e}")
-        plt.close('all')
-    
-    return artifacts
+        print(f"⚠️  Error creating visualizations for {model_name}: {str(e)}")
 
-def train_model_simple(model, model_name, X_train, X_test, y_train, y_test, args):
-    """Train a single model with simple MLflow logging"""
+def train_model(model, model_name, X_train, X_test, y_train, y_test, save_artifacts=True):
+    """
+    Train individual model and log comprehensive metrics
+    """
+    print(f"\n🔄 Training {model_name}...")
     
-    print(f"\n🤖 Training {model_name}...")
+    start_time = time.time()
     
-    # Ensure clean state
+    # Train model
+    model.fit(X_train, y_train)
+    training_time = time.time() - start_time
+    
+    # Make predictions
+    y_pred = model.predict(X_test)
+    
+    # Get probabilities if available
+    y_pred_proba = None
+    if hasattr(model, 'predict_proba'):
+        y_pred_proba = model.predict_proba(X_test)
+    
+    # Calculate comprehensive metrics
+    metrics = calculate_comprehensive_metrics(y_test, y_pred, y_pred_proba)
+    metrics['training_time'] = training_time
+    
+    # Cross-validation scores
     try:
-        while mlflow.active_run():
-            mlflow.end_run()
-    except:
-        pass
-    
-    run_name = f"Simple_{model_name.replace(' ', '_')}"
-    
-    try:
-        mlflow.start_run(run_name=run_name)
-        
-        start_time = time.time()
-        
-        # Train model
-        model.fit(X_train, y_train)
-        training_time = time.time() - start_time
-        
-        # Cross-validation
-        try:
-            cv_scores = cross_val_score(model, X_train, y_train, cv=3, scoring='accuracy')
-            cv_mean = float(np.mean(cv_scores))
-            cv_std = float(np.std(cv_scores))
-        except:
-            cv_mean = cv_std = 0.0
-        
-        # Predictions
-        y_pred = model.predict(X_test)
-        y_pred_proba = None
-        if hasattr(model, 'predict_proba'):
-            try:
-                y_pred_proba = model.predict_proba(X_test)
-            except:
-                pass
-        
-        # Calculate metrics
-        metrics = calculate_metrics(y_test, y_pred, y_pred_proba)
-        metrics.update({
-            'cv_mean_accuracy': cv_mean,
-            'cv_std_accuracy': cv_std,
-            'training_time_seconds': float(training_time)
-        })
-        
-        # Log basic parameters
-        try:
-            mlflow.log_param("model_name", model_name)
-            mlflow.log_param("test_size", args.test_size)
-            mlflow.log_param("random_state", args.random_state)
-        except Exception as e:
-            print(f"   ⚠️  Parameter logging: {e}")
-        
-        # Log metrics
-        try:
-            for metric_name, metric_value in metrics.items():
-                if np.isfinite(float(metric_value)):
-                    mlflow.log_metric(metric_name, float(metric_value))
-        except Exception as e:
-            print(f"   ⚠️  Metrics logging: {e}")
-        
-        # Create and log simple artifacts
-        if args.save_artifacts:
-            try:
-                artifacts = create_simple_artifacts(y_test, y_pred, model_name)
-                for artifact_path in artifacts:
-                    mlflow.log_artifact(artifact_path)
-            except Exception as e:
-                print(f"   ⚠️  Artifacts: {e}")
-        
-        # Log model (simple approach)
-        try:
-            mlflow.sklearn.log_model(
-                sk_model=model,
-                artifact_path=f"model"
-            )
-        except Exception as e:
-            print(f"   ⚠️  Model logging: {e}")
-            # Simple fallback
-            try:
-                model_path = f'model_{model_name.lower().replace(" ", "_")}.pkl'
-                joblib.dump(model, model_path)
-                mlflow.log_artifact(model_path)
-            except:
-                pass
-        
-        mlflow.end_run()
-        
-        print(f"   ✅ Accuracy: {metrics['accuracy']:.4f}")
-        print(f"   ✅ MCC: {metrics['matthews_corrcoef']:.4f}")
-        
-        return {
-            'model': model,
-            'metrics': metrics,
-            'success': True
-        }
-        
+        cv_scores = cross_val_score(model, X_train, y_train, cv=5, scoring='accuracy')
+        metrics['cv_mean_accuracy'] = cv_scores.mean()
+        metrics['cv_std_accuracy'] = cv_scores.std()
     except Exception as e:
-        print(f"   ❌ Training failed: {e}")
-        try:
-            mlflow.end_run()
-        except:
-            pass
-        return {
-            'model': None,
-            'metrics': {},
-            'success': False,
-            'error': str(e)
-        }
+        print(f"⚠️  CV error for {model_name}: {str(e)}")
+        metrics['cv_mean_accuracy'] = 0
+        metrics['cv_std_accuracy'] = 0
+    
+    # Log all metrics to MLflow
+    for metric_name, metric_value in metrics.items():
+        mlflow.log_metric(metric_name, metric_value)
+    
+    # Log model parameters
+    if hasattr(model, 'get_params'):
+        for param_name, param_value in model.get_params().items():
+            mlflow.log_param(param_name, param_value)
+    
+    # Create visualizations
+    create_model_visualizations(model, model_name, X_test, y_test, y_pred, y_pred_proba, save_artifacts)
+    
+    # Save model
+    mlflow.sklearn.log_model(model, f"{model_name.lower().replace(' ', '_')}_model")
+    
+    print(f"✅ {model_name} - Accuracy: {metrics['accuracy']:.4f}, ROC AUC: {metrics.get('roc_auc', 'N/A')}")
+    
+    return model, metrics
 
-def main():
-    """Main training function - simplified and robust"""
-    print("🚀 HEART DISEASE ML TRAINING - SIMPLE & ROBUST")
+@click.command()
+@click.option('--test_size', default=0.2, type=float, help='Test set size ratio')
+@click.option('--random_state', default=42, type=int, help='Random state for reproducibility')
+@click.option('--max_iter', default=1000, type=int, help='Maximum iterations for LogisticRegression')
+@click.option('--n_estimators', default=100, type=int, help='Number of estimators for ensemble methods')
+@click.option('--experiment_name', default='Heart_Disease_CI', type=str, help='MLflow experiment name')
+@click.option('--save_artifacts', default=True, type=bool, help='Save visualization artifacts')
+@click.option('--run_id', default='local_run', type=str, help='GitHub Actions run ID')
+@click.option('--commit_sha', default='unknown', type=str, help='Git commit SHA')
+@click.option('--hyperparameter_tuning', default=False, type=bool, help='Enable hyperparameter tuning')
+@click.option('--cv_folds', default=5, type=int, help='Cross-validation folds for tuning')
+def main(test_size, random_state, max_iter, n_estimators, experiment_name, save_artifacts, run_id, commit_sha, hyperparameter_tuning, cv_folds):
+    """
+    Heart Disease ML Training Pipeline for MLflow Project
+    """
+    print("="*60)
+    print("HEART DISEASE ML TRAINING - MLFLOW PROJECT")
     print("="*60)
     
-    try:
-        # Parse arguments
-        args = parse_arguments()
-        print(f"📋 Parameters: test_size={args.test_size}, random_state={args.random_state}")
+    # Set MLflow experiment
+    mlflow.set_experiment(experiment_name)
+    
+    with mlflow.start_run() as run:
+        # Log run metadata
+        mlflow.log_param("test_size", test_size)
+        mlflow.log_param("random_state", random_state)
+        mlflow.log_param("max_iter", max_iter)
+        mlflow.log_param("n_estimators", n_estimators)
+        mlflow.log_param("github_run_id", run_id)
+        mlflow.log_param("commit_sha", commit_sha)
+        mlflow.log_param("hyperparameter_tuning", hyperparameter_tuning)
         
-        # Setup MLflow
-        experiment_name = setup_mlflow_clean(args.experiment_name)
+        # Load data
+        df = load_heart_disease_data()
         
-        # Load and preprocess data
-        df = load_data()
-        X_train, X_test, y_train, y_test, preprocessor = preprocess_data(
-            df, args.test_size, args.random_state
+        # Prepare features and target
+        X = df.drop('target', axis=1)
+        y = df['target']
+        
+        # Log dataset info
+        mlflow.log_param("dataset_shape", f"{df.shape[0]}x{df.shape[1]}")
+        mlflow.log_param("n_features", X.shape[1])
+        mlflow.log_param("n_positive", int(y.sum()))
+        mlflow.log_param("n_negative", int(len(y) - y.sum()))
+        
+        # Split data
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=test_size, random_state=random_state, stratify=y
         )
         
-        # Define simple models
+        print(f"Training set: {X_train.shape}")
+        print(f"Test set: {X_test.shape}")
+        
+        # Define models
         models = {
             'Logistic Regression': LogisticRegression(
-                random_state=args.random_state, 
-                max_iter=args.max_iter
+                random_state=random_state, 
+                max_iter=max_iter,
+                solver='liblinear'
             ),
             'Random Forest': RandomForestClassifier(
-                random_state=args.random_state,
-                n_estimators=min(args.n_estimators, 50)  # Limit for speed
+                random_state=random_state,
+                n_estimators=n_estimators
             ),
             'Gradient Boosting': GradientBoostingClassifier(
-                random_state=args.random_state,
-                n_estimators=min(args.n_estimators, 50)
+                random_state=random_state,
+                n_estimators=n_estimators
             ),
-            'SVM': SVC(
-                random_state=args.random_state,
-                probability=True
+            'Support Vector Machine': SVC(
+                random_state=random_state,
+                probability=True,
+                kernel='rbf'
             )
         }
         
         # Train models
         results = {}
-        successful_models = 0
+        best_model = None
+        best_accuracy = 0
         
         for model_name, model in models.items():
-            result = train_model_simple(model, model_name, X_train, X_test, y_train, y_test, args)
-            results[model_name] = result
-            if result['success']:
-                successful_models += 1
+            try:
+                # Create child run for each model
+                with mlflow.start_run(run_name=f"{experiment_name}_{model_name}", nested=True):
+                    trained_model, metrics = train_model(
+                        model, model_name, X_train, X_test, y_train, y_test, save_artifacts
+                    )
+                    results[model_name] = metrics
+                    
+                    # Track best model
+                    if metrics['accuracy'] > best_accuracy:
+                        best_accuracy = metrics['accuracy']
+                        best_model = model_name
+                        
+            except Exception as e:
+                print(f"❌ Error training {model_name}: {str(e)}")
+                continue
         
-        # Save summary
+        # Log best model info
+        if best_model:
+            mlflow.log_param("best_model", best_model)
+            mlflow.log_metric("best_accuracy", best_accuracy)
+        
+        # Create results summary
         summary = {
             'experiment_name': experiment_name,
-            'successful_models': successful_models,
-            'total_models': len(models),
-            'timestamp': datetime.datetime.now().isoformat(),
-            'results': {k: v['success'] for k, v in results.items()}
+            'run_id': run.info.run_id,
+            'github_run_id': run_id,
+            'commit_sha': commit_sha,
+            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'dataset_shape': f"{df.shape[0]}x{df.shape[1]}",
+            'test_size': test_size,
+            'best_model': best_model,
+            'best_accuracy': best_accuracy,
+            'models_trained': len(results),
+            'results': results
         }
         
-        import json
+        # Save summary
         with open('training_summary.json', 'w') as f:
-            json.dump(summary, f, indent=2)
+            json.dump(summary, f, indent=2, default=str)
         
-        # Final results
-        print("\n" + "="*60)
-        print("🎉 TRAINING COMPLETED!")
-        print("="*60)
-        print(f"📊 Successful models: {successful_models}/{len(models)}")
-        print(f"🧪 Experiment: {experiment_name}")
+        mlflow.log_artifact('training_summary.json')
         
-        if successful_models > 0:
-            print("\n✅ Successfully trained models:")
-            for name, result in results.items():
-                if result['success']:
-                    acc = result.get('metrics', {}).get('accuracy', 0)
-                    print(f"   🔸 {name}: {acc:.4f}")
+        # Create performance comparison
+        if results:
+            comparison_df = pd.DataFrame(results).T
+            comparison_df = comparison_df.round(4)
+            comparison_df.to_csv('model_comparison.csv')
+            mlflow.log_artifact('model_comparison.csv')
             
-            print("\n🎉 Training successful!")
-            sys.exit(0)
-        else:
-            print("\n❌ No models trained successfully")
-            sys.exit(1)
-            
-    except Exception as e:
-        print(f"\n❌ Critical error: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
-    finally:
-        # Final cleanup
-        try:
-            while mlflow.active_run():
-                mlflow.end_run()
-        except:
-            pass
+            print("\n📊 Model Performance Summary:")
+            print(comparison_df[['accuracy', 'roc_auc', 'f1_score', 'matthews_corrcoef']].to_string())
+        
+        print(f"\n🎉 Training completed successfully!")
+        print(f"Best Model: {best_model} (Accuracy: {best_accuracy:.4f})")
+        print(f"MLflow Run ID: {run.info.run_id}")
+        print(f"Artifacts saved: {save_artifacts}")
 
 if __name__ == "__main__":
     main()

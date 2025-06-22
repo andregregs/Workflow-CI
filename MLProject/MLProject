@@ -1,6 +1,6 @@
-name: heart-disease-ml
+name: Heart_Disease_MLOps_Project
 
-python_env: python
+conda_env: conda.yaml
 
 entry_points:
   main:
@@ -9,15 +9,28 @@ entry_points:
       random_state: {type: int, default: 42}
       max_iter: {type: int, default: 1000}
       n_estimators: {type: int, default: 100}
-      experiment_name: {type: string, default: "Heart_Disease_CI"}
+      experiment_name: {type: str, default: "Heart_Disease_CI"}
       save_artifacts: {type: bool, default: true}
-    command: "python modelling.py --test_size {test_size} --random_state {random_state} --max_iter {max_iter} --n_estimators {n_estimators} --experiment_name {experiment_name} --save_artifacts {save_artifacts}"
+      run_id: {type: str, default: "local_run"}
+      commit_sha: {type: str, default: "unknown"}
+    command: "python modelling.py --test_size {test_size} --random_state {random_state} --max_iter {max_iter} --n_estimators {n_estimators} --experiment_name {experiment_name} --save_artifacts {save_artifacts} --run_id {run_id} --commit_sha {commit_sha}"
 
-  train_models:
+  train_basic:
     parameters:
-      experiment_name: {type: string, default: "Heart_Disease_CI"}
-      save_artifacts: {type: bool, default: true}
-    command: "python modelling.py --experiment_name {experiment_name} --save_artifacts {save_artifacts}"
+      test_size: {type: float, default: 0.2}
+      random_state: {type: int, default: 42}
+    command: "python modelling.py --test_size {test_size} --random_state {random_state} --experiment_name Heart_Disease_Basic"
 
-  local_test:
-    command: "python modelling.py --experiment_name Local_Test --test_size 0.2"
+  train_production:
+    parameters:
+      test_size: {type: float, default: 0.15}
+      random_state: {type: int, default: 42}
+      max_iter: {type: int, default: 2000}
+      n_estimators: {type: int, default: 200}
+    command: "python modelling.py --test_size {test_size} --random_state {random_state} --max_iter {max_iter} --n_estimators {n_estimators} --experiment_name Heart_Disease_Production --save_artifacts true"
+
+  hyperparameter_tuning:
+    parameters:
+      cv_folds: {type: int, default: 5}
+      random_state: {type: int, default: 42}
+    command: "python modelling.py --hyperparameter_tuning true --cv_folds {cv_folds} --random_state {random_state} --experiment_name Heart_Disease_Tuning"
