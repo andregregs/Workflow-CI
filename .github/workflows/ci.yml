@@ -353,31 +353,17 @@ jobs:
         # Install MLflow if not available
         pip install mlflow>=2.8.0
         
-        # Find the latest successful run
-        LATEST_EXP=$(find mlruns -maxdepth 1 -type d -name "[0-9]*" | sort -n | tail -1)
+        # Set Docker image name
+        if [ -n "${{ secrets.DOCKER_USERNAME }}" ]; then
+          DOCKER_IMAGE_NAME="${{ secrets.DOCKER_USERNAME }}/heart-disease-ml"
+        else
+          DOCKER_IMAGE_NAME="heart-disease-ml"
+        fi
         
-        if [ -n "$LATEST_EXP" ]; then
-          LATEST_RUN=$(find "$LATEST_EXP" -maxdepth 1 -type d -name "*" | grep -v meta.yaml | sort | tail -1)
-          
-          if [ -n "$LATEST_RUN" ]; then
-            RUN_ID=$(basename "$LATEST_RUN")
-            echo "Building Docker image for run: $RUN_ID"
-            
-            # Use MLflow build-docker command (ADVANCE REQUIREMENT)
-            if [ -n "${{ secrets.DOCKER_USERNAME }}" ]; then
-              DOCKER_IMAGE_NAME="${{ secrets.DOCKER_USERNAME }}/heart-disease-ml"
-              
-              # Build Docker image using MLflow (this is the key for Advance level)
-              mlflow models build-docker \
-                --model-uri "runs:/$RUN_ID/random_forest_model" \
-                --name "$DOCKER_IMAGE_NAME" \
-                --enable-mlserver \
-                || echo "MLflow build-docker failed, using fallback"
-                
-              # Fallback: Create custom Dockerfile if MLflow build-docker fails
-              if [ $? -ne 0 ]; then
-                echo "Creating custom Dockerfile as fallback..."
-                cat > Dockerfile << 'EOF'
+        echo "Using Docker image name: $DOCKER_IMAGE_NAME"
+        
+        # Create basic Dockerfile (fallback for all cases)
+        cat > Dockerfile << 'EOF'
         FROM python:3.9-slim
 
         WORKDIR /app
@@ -417,20 +403,56 @@ jobs:
         # Default command - serve the model
         CMD ["mlflow", "models", "serve", "--model-uri", "runs:/LATEST/random_forest_model", "--host", "0.0.0.0", "--port", "5000"]
         EOF
-                
-                # Build with custom Dockerfile
-                docker build -t "$DOCKER_IMAGE_NAME:latest" .
-                docker build -t "$DOCKER_IMAGE_NAME:${{ github.run_id }}" .
-              fi
-              
-              # Tag images
-              docker tag "$DOCKER_IMAGE_NAME:latest" "$DOCKER_IMAGE_NAME:${{ github.run_id }}"
-              
-              echo "✅ Docker image built: $DOCKER_IMAGE_NAME"
+        
+        # Try to find the latest successful run for MLflow build-docker
+        LATEST_EXP=$(find mlruns -maxdepth 1 -type d -name "[0-9]*" | sort -n | tail -1)
+        
+        if [ -n "$LATEST_EXP" ]; then
+          LATEST_RUN=$(find "$LATEST_EXP" -maxdepth 1 -type d -name "*" | grep -v meta.yaml | sort | tail -1)
+          
+          if [ -n "$LATEST_RUN" ]; then
+            RUN_ID=$(basename "$LATEST_RUN")
+            echo "Found MLflow run: $RUN_ID"
+            
+            # Try MLflow build-docker command first
+            echo "Attempting MLflow build-docker..."
+            if mlflow models build-docker \
+              --model-uri "runs:/$RUN_ID/random_forest_model" \
+              --name "$DOCKER_IMAGE_NAME" \
+              --enable-mlserver; then
+              echo "✅ MLflow build-docker successful"
             else
-              echo "⚠️  Docker Hub credentials not found"
+              echo "⚠️  MLflow build-docker failed, using custom Dockerfile"
+              # Build with custom Dockerfile
+              echo "Building Docker image with custom Dockerfile..."
+              docker build -t "$DOCKER_IMAGE_NAME:latest" .
+              docker tag "$DOCKER_IMAGE_NAME:latest" "$DOCKER_IMAGE_NAME:${{ github.run_id }}"
+              echo "✅ Docker image built with custom Dockerfile"
             fi
+          else
+            echo "⚠️  No MLflow runs found, using basic Dockerfile"
+            # Build with basic Dockerfile
+            echo "Building Docker image with basic Dockerfile..."
+            docker build -t "$DOCKER_IMAGE_NAME:latest" .
+            docker tag "$DOCKER_IMAGE_NAME:latest" "$DOCKER_IMAGE_NAME:${{ github.run_id }}"
+            echo "✅ Docker image built with basic Dockerfile"
           fi
+        else
+          echo "⚠️  No MLflow experiments found, using basic Dockerfile"
+          # Build with basic Dockerfile
+          echo "Building Docker image with basic Dockerfile..."
+          docker build -t "$DOCKER_IMAGE_NAME:latest" .
+          docker tag "$DOCKER_IMAGE_NAME:latest" "$DOCKER_IMAGE_NAME:${{ github.run_id }}"
+          echo "✅ Docker image built with basic Dockerfile"
+        fi
+        
+        # Verify Docker image was created
+        if docker images | grep -q "$DOCKER_IMAGE_NAME"; then
+          echo "✅ Docker image verified:"
+          docker images | grep "$DOCKER_IMAGE_NAME"
+        else
+          echo "❌ Docker image not found - build failed"
+          exit 1
         fi
         
     # Step 6: Push Docker Image to Docker Hub (ADVANCE REQUIREMENT)
