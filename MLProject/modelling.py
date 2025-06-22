@@ -328,10 +328,9 @@ def main(test_size, random_state, max_iter, n_estimators, experiment_name, save_
     # Setup output directories
     setup_output_directories()
     
-    # Set MLflow tracking URI ke path tanpa spasi
-    mlruns_path = Path("C:/mlruns")
-    mlruns_path.mkdir(parents=True, exist_ok=True)
-    mlflow.set_tracking_uri(f"file:///{mlruns_path.as_posix()}")
+    # Set MLflow tracking URI - use environment variable or default to local mlruns
+    mlflow_tracking_uri = os.environ.get('MLFLOW_TRACKING_URI', 'file:./mlruns')
+    mlflow.set_tracking_uri(mlflow_tracking_uri)
     print(f"🔗 MLflow tracking URI: {mlflow.get_tracking_uri()}")
     
     # Set MLflow experiment

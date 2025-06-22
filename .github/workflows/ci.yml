@@ -84,7 +84,16 @@ jobs:
         conda install -c conda-forge pandas scikit-learn matplotlib seaborn joblib click -y
         echo "✅ MLflow installed in conda environment"
         
-    # Step 7: Validate MLProject Structure
+    # Step 7: Setup MLflow Tracking
+    - name: Setup MLflow Tracking
+      run: |
+        echo "🔧 Setting up MLflow tracking..."
+        export MLFLOW_TRACKING_URI="file:./mlruns"
+        mkdir -p mlruns
+        echo "✅ MLflow tracking URI set to: $MLFLOW_TRACKING_URI"
+        echo "✅ MLruns directory created"
+        
+    # Step 8: Validate MLProject Structure
     - name: Validate MLProject Structure
       run: |
         echo "=== Checking MLProject Structure ==="
@@ -102,7 +111,7 @@ jobs:
         echo "=== Dataset Files ==="
         ls -la MLProject/*.csv 2>/dev/null || echo "No CSV files found in MLProject/"
         
-    # Step 8: Run MLflow Project (FIXED - Using MLflow Project instead of direct Python)
+    # Step 9: Run MLflow Project (FIXED - Using MLflow Project instead of direct Python)
     - name: Run Heart Disease MLflow Project
       run: |
         cd MLProject
@@ -111,6 +120,9 @@ jobs:
         # Set parameters from workflow inputs or defaults
         TEST_SIZE="${{ github.event.inputs.test_size || '0.2' }}"
         EXPERIMENT_NAME="${{ github.event.inputs.experiment_name || 'Heart_Disease_CI' }}"
+        
+        # Set MLflow tracking URI for this directory
+        export MLFLOW_TRACKING_URI="file:./mlruns"
         
         # Create mlruns directory
         mkdir -p mlruns
@@ -130,6 +142,7 @@ jobs:
         echo "  - experiment_name: $EXPERIMENT_NAME"
         echo "  - run_id: ${{ github.run_id }}"
         echo "  - commit_sha: ${{ github.sha }}"
+        echo "  - MLFLOW_TRACKING_URI: $MLFLOW_TRACKING_URI"
         
         # Use simple mlflow run command with minimal parameters
         mlflow run . \
@@ -142,7 +155,7 @@ jobs:
           
         echo "✅ MLflow Project training completed successfully"
         
-    # Step 9: Validate Training Results
+    # Step 10: Validate Training Results
     - name: Validate Training Results
       run: |
         cd MLProject
@@ -186,7 +199,7 @@ jobs:
           echo "⚠️  MLflow runs directory not found"
         fi
         
-    # Step 10: Upload Training Artifacts (Updated paths)
+    # Step 11: Upload Training Artifacts (Updated paths)
     - name: Upload Training Artifacts
       uses: actions/upload-artifact@v4
       with:
@@ -197,7 +210,7 @@ jobs:
           MLProject/*.json
         retention-days: 30
         
-    # Step 11: Commit Artifacts to Repository (Skilled requirement)
+    # Step 12: Commit Artifacts to Repository (Skilled requirement)
     - name: Commit Artifacts to Repository
       run: |
         cd MLProject
@@ -254,7 +267,7 @@ jobs:
         git commit -m "Add training artifacts for run ${{ github.run_id }} (organized outputs)" || echo "No changes to commit"
         git push || echo "Push failed or no changes"
         
-    # Step 12: Create MLflow Model Package
+    # Step 13: Create MLflow Model Package
     - name: Create MLflow Model Package
       run: |
         cd MLProject
