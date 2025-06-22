@@ -95,6 +95,9 @@ jobs:
         echo ""
         echo "=== Dataset Files ==="
         ls -la MLProject/*.csv 2>/dev/null || echo "No CSV files found in MLProject/"
+        echo ""
+        echo "=== Heart Preprocessing Files ==="
+        ls -la MLProject/heart_preprocessing/*.csv 2>/dev/null || echo "No CSV files found in heart_preprocessing/"
         
     # Step 8: Run MLflow Project (FIXED - Using MLflow Project instead of direct Python)
     - name: Run Heart Disease MLflow Project
@@ -112,7 +115,7 @@ jobs:
         
         # Install dependencies from conda.yaml manually
         echo "📦 Installing dependencies from conda.yaml..."
-        conda env create -f conda.yaml --force
+        conda env create -f conda.yaml || conda env update -f conda.yaml
         
         # Run MLflow Project with --no-conda to use existing environment
         echo "📊 Executing MLflow Project with parameters:"
