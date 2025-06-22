@@ -69,16 +69,8 @@ jobs:
       with:
         auto-update-conda: true
         python-version: 3.9
-        conda-forge: true
         
-    # Step 6: Install MLflow with conda support
-    - name: Install MLflow with Conda Support
-      run: |
-        conda install -c conda-forge mlflow
-        pip install conda-pack>=0.7.0
-        echo "✅ MLflow with conda support installed"
-        
-    # Step 7: Validate MLProject Structure
+    # Step 6: Validate MLProject Structure
     - name: Validate MLProject Structure
       run: |
         echo "=== Checking MLProject Structure ==="
@@ -95,11 +87,8 @@ jobs:
         echo ""
         echo "=== Dataset Files ==="
         ls -la MLProject/*.csv 2>/dev/null || echo "No CSV files found in MLProject/"
-        echo ""
-        echo "=== Heart Preprocessing Files ==="
-        ls -la MLProject/heart_preprocessing/*.csv 2>/dev/null || echo "No CSV files found in heart_preprocessing/"
         
-    # Step 8: Run MLflow Project (FIXED - Using MLflow Project instead of direct Python)
+    # Step 7: Run MLflow Project (FIXED - Using MLflow Project instead of direct Python)
     - name: Run Heart Disease MLflow Project
       run: |
         cd MLProject
@@ -113,10 +102,7 @@ jobs:
         # Create mlruns directory
         mkdir -p mlruns
         
-        # Set MLflow tracking URI
-        export MLFLOW_TRACKING_URI=file:./mlruns
-        
-        # Run MLflow Project (removed --no-conda as it's not a valid option)
+        # Run MLflow Project (THIS IS THE FIX - Using mlflow run instead of python directly)
         echo "📊 Executing MLflow Project with parameters:"
         echo "  - test_size: $TEST_SIZE"
         echo "  - experiment_name: $EXPERIMENT_NAME"
@@ -134,11 +120,12 @@ jobs:
           -P save_artifacts=true \
           -P run_id="${{ github.run_id }}" \
           -P commit_sha="${{ github.sha }}" \
-          -P hyperparameter_tuning="$HYPERPARAMETER_TUNING"
+          -P hyperparameter_tuning="$HYPERPARAMETER_TUNING" \
+          --no-conda
           
         echo "✅ MLflow Project training completed successfully"
         
-    # Step 9: Validate Training Results
+    # Step 8: Validate Training Results
     - name: Validate Training Results
       run: |
         cd MLProject
@@ -170,7 +157,7 @@ jobs:
         echo "Artifacts in MLflow runs:"
         find mlruns -name "*.png" -o -name "*.pkl" -o -name "*.csv" | head -10
         
-    # Step 10: Upload Training Artifacts (Skilled requirement)
+    # Step 9: Upload Training Artifacts (Skilled requirement)
     - name: Upload Training Artifacts
       uses: actions/upload-artifact@v4
       with:
@@ -184,7 +171,7 @@ jobs:
           MLProject/training_summary.json
         retention-days: 30
         
-    # Step 11: Commit Artifacts to Repository (Skilled requirement)
+    # Step 10: Commit Artifacts to Repository (Skilled requirement)
     - name: Commit Artifacts to Repository
       run: |
         cd MLProject
@@ -221,7 +208,7 @@ jobs:
         git commit -m "Add training artifacts for run ${{ github.run_id }}" || echo "No changes to commit"
         git push || echo "Push failed or no changes"
         
-    # Step 12: Create MLflow Model Package
+    # Step 11: Create MLflow Model Package
     - name: Create MLflow Model Package
       run: |
         cd MLProject
@@ -288,11 +275,11 @@ jobs:
         
     # Step 3: Set up Docker Buildx
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v4
+      uses: docker/setup-buildx-action@v3
       
     # Step 4: Login to Docker Hub
     - name: Login to Docker Hub
-      uses: docker/login-action@v4
+      uses: docker/login-action@v3
       with:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
@@ -369,7 +356,7 @@ jobs:
           CMD curl -f http://localhost:5000/health || exit 1
 
         # Default command - serve the model
-        CMD ["mlflow", "models", "serve", "--model-uri", "runs:/LATEST/random_forest_model", "--host", "0.0.0.0", "--port", "5000"]
+        CMD ["mlflow", "models", "serve", "--model-uri", "runs:/LATEST/random_forest_model", "--host", "0.0.0.0", "--port", "5000", "--no-conda"]
         EOF
                 
                 # Build with custom Dockerfile

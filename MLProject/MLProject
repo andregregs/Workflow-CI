@@ -13,8 +13,7 @@ entry_points:
       save_artifacts: {type: bool, default: true}
       run_id: {type: str, default: "local_run"}
       commit_sha: {type: str, default: "unknown"}
-      hyperparameter_tuning: {type: str, default: "false"}
-    command: "python modelling.py --test_size {test_size} --random_state {random_state} --max_iter {max_iter} --n_estimators {n_estimators} --experiment_name {experiment_name} --save_artifacts {save_artifacts} --run_id {run_id} --commit_sha {commit_sha} --hyperparameter_tuning {hyperparameter_tuning}"
+    command: "python modelling.py --test_size {test_size} --random_state {random_state} --max_iter {max_iter} --n_estimators {n_estimators} --experiment_name {experiment_name} --save_artifacts {save_artifacts} --run_id {run_id} --commit_sha {commit_sha}"
 
   train_basic:
     parameters:
