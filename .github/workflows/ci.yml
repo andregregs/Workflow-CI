@@ -102,7 +102,7 @@ jobs:
         # Create mlruns directory
         mkdir -p mlruns
         
-        # Run MLflow Project (THIS IS THE FIX - Using mlflow run instead of python directly)
+        # Run MLflow Project (FIXED - Removed invalid --no-conda option)
         echo "📊 Executing MLflow Project with parameters:"
         echo "  - test_size: $TEST_SIZE"
         echo "  - experiment_name: $EXPERIMENT_NAME"
@@ -120,8 +120,7 @@ jobs:
           -P save_artifacts=true \
           -P run_id="${{ github.run_id }}" \
           -P commit_sha="${{ github.sha }}" \
-          -P hyperparameter_tuning="$HYPERPARAMETER_TUNING" \
-          --no-conda
+          -P hyperparameter_tuning="$HYPERPARAMETER_TUNING"
           
         echo "✅ MLflow Project training completed successfully"
         
@@ -356,7 +355,7 @@ jobs:
           CMD curl -f http://localhost:5000/health || exit 1
 
         # Default command - serve the model
-        CMD ["mlflow", "models", "serve", "--model-uri", "runs:/LATEST/random_forest_model", "--host", "0.0.0.0", "--port", "5000", "--no-conda"]
+        CMD ["mlflow", "models", "serve", "--model-uri", "runs:/LATEST/random_forest_model", "--host", "0.0.0.0", "--port", "5000"]
         EOF
                 
                 # Build with custom Dockerfile
