@@ -61,6 +61,11 @@ jobs:
         pip install mlflow>=2.8.0
         pip install conda-pack>=0.7.0
         pip install click>=8.0.0
+        pip install pandas>=2.0.0
+        pip install scikit-learn>=1.3.0
+        pip install matplotlib>=3.7.0
+        pip install seaborn>=0.12.0
+        pip install joblib>=1.3.0
         echo "✅ MLflow and core dependencies installed"
         
     # Step 5: Setup Conda (for MLflow Project)
@@ -69,8 +74,17 @@ jobs:
       with:
         auto-update-conda: true
         python-version: 3.9
+        conda-forge: true
         
-    # Step 6: Validate MLProject Structure
+    # Step 6: Install MLflow in conda environment
+    - name: Install MLflow in Conda Environment
+      run: |
+        conda install -c conda-forge mlflow>=2.8.0 -y
+        conda install -c conda-forge conda-pack>=0.7.0 -y
+        conda install -c conda-forge pandas scikit-learn matplotlib seaborn joblib click -y
+        echo "✅ MLflow installed in conda environment"
+        
+    # Step 7: Validate MLProject Structure
     - name: Validate MLProject Structure
       run: |
         echo "=== Checking MLProject Structure ==="
@@ -88,7 +102,7 @@ jobs:
         echo "=== Dataset Files ==="
         ls -la MLProject/*.csv 2>/dev/null || echo "No CSV files found in MLProject/"
         
-    # Step 7: Run MLflow Project (FIXED - Using MLflow Project instead of direct Python)
+    # Step 8: Run MLflow Project (FIXED - Using MLflow Project instead of direct Python)
     - name: Run Heart Disease MLflow Project
       run: |
         cd MLProject
@@ -97,81 +111,93 @@ jobs:
         # Set parameters from workflow inputs or defaults
         TEST_SIZE="${{ github.event.inputs.test_size || '0.2' }}"
         EXPERIMENT_NAME="${{ github.event.inputs.experiment_name || 'Heart_Disease_CI' }}"
-        HYPERPARAMETER_TUNING="${{ github.event.inputs.hyperparameter_tuning || 'false' }}"
         
         # Create mlruns directory
         mkdir -p mlruns
         
-        # Run MLflow Project (THIS IS THE FIX - Using mlflow run instead of python directly)
+        # Verify dataset exists
+        if [ -f "heart_preprocessing/heart_processed.csv" ]; then
+          echo "✅ Dataset found: heart_preprocessing/heart_processed.csv"
+          ls -la heart_preprocessing/
+        else
+          echo "❌ Dataset not found at heart_preprocessing/heart_processed.csv"
+          exit 1
+        fi
+        
+        # Run MLflow Project (SIMPLIFIED - Using basic parameters only)
         echo "📊 Executing MLflow Project with parameters:"
         echo "  - test_size: $TEST_SIZE"
         echo "  - experiment_name: $EXPERIMENT_NAME"
-        echo "  - hyperparameter_tuning: $HYPERPARAMETER_TUNING"
         echo "  - run_id: ${{ github.run_id }}"
         echo "  - commit_sha: ${{ github.sha }}"
         
+        # Use simple mlflow run command with minimal parameters
         mlflow run . \
           --experiment-name="$EXPERIMENT_NAME" \
+          --env-manager=local \
           -P test_size="$TEST_SIZE" \
-          -P random_state=42 \
-          -P max_iter=1000 \
-          -P n_estimators=100 \
           -P experiment_name="$EXPERIMENT_NAME" \
-          -P save_artifacts=true \
           -P run_id="${{ github.run_id }}" \
-          -P commit_sha="${{ github.sha }}" \
-          -P hyperparameter_tuning="$HYPERPARAMETER_TUNING" \
-          --no-conda
+          -P commit_sha="${{ github.sha }}"
           
         echo "✅ MLflow Project training completed successfully"
         
-    # Step 8: Validate Training Results
+    # Step 9: Validate Training Results
     - name: Validate Training Results
       run: |
         cd MLProject
         echo "=== Training Validation ==="
         
-        # Check if training summary was created
-        if [ -f "training_summary.json" ]; then
+        # Check if outputs directory was created
+        if [ -d "outputs" ]; then
+          echo "✅ Outputs directory found:"
+          find outputs -type f | head -10
+          echo ""
+          
+          # Check structure
+          echo "Directory structure:"
+          ls -la outputs/
+          
+          # Check individual subdirectories
+          for subdir in artifacts models visualizations reports; do
+            if [ -d "outputs/github_actions/$subdir" ]; then
+              echo "✅ $subdir directory found ($(ls outputs/github_actions/$subdir | wc -l) files)"
+            else
+              echo "⚠️  $subdir directory not found"
+            fi
+          done
+        else
+          echo "⚠️  Outputs directory not found"
+        fi
+        
+        # Check for training summary
+        if [ -f "outputs/github_actions/reports/training_summary.json" ]; then
           echo "✅ Training summary found:"
-          cat training_summary.json | jq '.' 2>/dev/null || cat training_summary.json
+          cat outputs/github_actions/reports/training_summary.json | jq '.' 2>/dev/null || cat outputs/github_actions/reports/training_summary.json
         else
           echo "⚠️  Training summary not found"
         fi
         
         # Check MLflow runs directory
-        if [ -d "mlruns" ]; then
+        if [ -d "outputs/github_actions/mlruns" ]; then
           echo "✅ MLflow runs directory found:"
-          find mlruns -type f -name "*.json" | head -5
-          echo ""
-          echo "MLflow experiments:"
-          find mlruns -type d -name "*" | grep -E "[0-9]+" | head -3
+          find outputs/github_actions/mlruns -type f -name "*.json" | head -5
         else
           echo "⚠️  MLflow runs directory not found"
         fi
         
-        # Check for generated artifacts
-        echo "=== Generated Artifacts ==="
-        ls -la *.png *.pkl *.json *.csv 2>/dev/null || echo "No artifacts found in root"
-        echo ""
-        echo "Artifacts in MLflow runs:"
-        find mlruns -name "*.png" -o -name "*.pkl" -o -name "*.csv" | head -10
-        
-    # Step 9: Upload Training Artifacts (Skilled requirement)
+    # Step 10: Upload Training Artifacts (Updated paths)
     - name: Upload Training Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: heart-disease-ml-artifacts-${{ github.run_id }}
         path: |
-          MLProject/mlruns/
-          MLProject/*.png
-          MLProject/*.pkl
-          MLProject/*.json
+          MLProject/outputs/
           MLProject/*.csv
-          MLProject/training_summary.json
+          MLProject/*.json
         retention-days: 30
         
-    # Step 10: Commit Artifacts to Repository (Skilled requirement)
+    # Step 11: Commit Artifacts to Repository (Skilled requirement)
     - name: Commit Artifacts to Repository
       run: |
         cd MLProject
@@ -180,24 +206,44 @@ jobs:
         # Create artifacts directory in repo
         mkdir -p ../artifacts/run-${{ github.run_id }}
         
-        # Copy key artifacts
-        cp training_summary.json ../artifacts/run-${{ github.run_id }}/ 2>/dev/null || echo "No summary file"
-        cp model_comparison.csv ../artifacts/run-${{ github.run_id }}/ 2>/dev/null || echo "No comparison file"
-        cp *.png ../artifacts/run-${{ github.run_id }}/ 2>/dev/null || echo "No PNG files"
+        # Copy key artifacts from organized outputs
+        if [ -d "outputs/github_actions" ]; then
+          # Copy summary and reports
+          cp outputs/github_actions/reports/training_summary.json ../artifacts/run-${{ github.run_id }}/ 2>/dev/null || echo "No summary file"
+          cp outputs/github_actions/reports/model_comparison.csv ../artifacts/run-${{ github.run_id }}/ 2>/dev/null || echo "No comparison file"
+          cp outputs/github_actions/reports/output_structure.txt ../artifacts/run-${{ github.run_id }}/ 2>/dev/null || echo "No structure file"
+          
+          # Copy sample visualizations (limit to avoid large repo size)
+          cp outputs/github_actions/visualizations/*.png ../artifacts/run-${{ github.run_id }}/ 2>/dev/null || echo "No visualization files"
+          
+          # Copy sample model files (just one for demo)
+          cp outputs/github_actions/models/random_forest_model.pkl ../artifacts/run-${{ github.run_id }}/ 2>/dev/null || echo "No model files"
+          
+          echo "✅ Copied artifacts from organized outputs directory"
+        else
+          echo "⚠️  Outputs directory not found, checking root directory"
+          # Fallback to root directory
+          cp *.json ../artifacts/run-${{ github.run_id }}/ 2>/dev/null || echo "No JSON files"
+          cp *.csv ../artifacts/run-${{ github.run_id }}/ 2>/dev/null || echo "No CSV files"
+        fi
         
-        # Create artifacts index
+        # Create artifacts index with better organization info
         cat > ../artifacts/run-${{ github.run_id }}/README.md << EOF
         # Training Run ${{ github.run_id }}
         
         **Date**: $(date)
         **Commit**: ${{ github.sha }}
         **Experiment**: ${{ github.event.inputs.experiment_name || 'Heart_Disease_CI' }}
+        **Output Directory**: outputs/github_actions
         
-        ## Files
+        ## Files in this Artifact
         $(ls -la ../artifacts/run-${{ github.run_id }}/)
         
+        ## Full Output Structure
+        $(cat outputs/github_actions/reports/output_structure.txt 2>/dev/null || echo "Structure file not available")
+        
         ## Results Summary
-        $(cat training_summary.json 2>/dev/null | jq '.results' || echo "Results not available")
+        $(cat outputs/github_actions/reports/training_summary.json 2>/dev/null | jq '.results' || echo "Results not available")
         EOF
         
         # Commit artifacts to repository (for Skilled level)
@@ -205,10 +251,10 @@ jobs:
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
         git add artifacts/
-        git commit -m "Add training artifacts for run ${{ github.run_id }}" || echo "No changes to commit"
+        git commit -m "Add training artifacts for run ${{ github.run_id }} (organized outputs)" || echo "No changes to commit"
         git push || echo "Push failed or no changes"
         
-    # Step 11: Create MLflow Model Package
+    # Step 12: Create MLflow Model Package
     - name: Create MLflow Model Package
       run: |
         cd MLProject
@@ -356,7 +402,7 @@ jobs:
           CMD curl -f http://localhost:5000/health || exit 1
 
         # Default command - serve the model
-        CMD ["mlflow", "models", "serve", "--model-uri", "runs:/LATEST/random_forest_model", "--host", "0.0.0.0", "--port", "5000", "--no-conda"]
+        CMD ["mlflow", "models", "serve", "--model-uri", "runs:/LATEST/random_forest_model", "--host", "0.0.0.0", "--port", "5000"]
         EOF
                 
                 # Build with custom Dockerfile
