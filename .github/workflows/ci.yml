@@ -69,8 +69,16 @@ jobs:
       with:
         auto-update-conda: true
         python-version: 3.9
+        conda-forge: true
         
-    # Step 6: Validate MLProject Structure
+    # Step 6: Install MLflow with conda support
+    - name: Install MLflow with Conda Support
+      run: |
+        conda install -c conda-forge mlflow
+        pip install conda-pack>=0.7.0
+        echo "✅ MLflow with conda support installed"
+        
+    # Step 7: Validate MLProject Structure
     - name: Validate MLProject Structure
       run: |
         echo "=== Checking MLProject Structure ==="
@@ -88,7 +96,7 @@ jobs:
         echo "=== Dataset Files ==="
         ls -la MLProject/*.csv 2>/dev/null || echo "No CSV files found in MLProject/"
         
-    # Step 7: Run MLflow Project (FIXED - Using MLflow Project instead of direct Python)
+    # Step 8: Run MLflow Project (FIXED - Using MLflow Project instead of direct Python)
     - name: Run Heart Disease MLflow Project
       run: |
         cd MLProject
@@ -102,7 +110,11 @@ jobs:
         # Create mlruns directory
         mkdir -p mlruns
         
-        # Run MLflow Project (FIXED - Removed invalid --no-conda option)
+        # Install dependencies from conda.yaml manually
+        echo "📦 Installing dependencies from conda.yaml..."
+        conda env create -f conda.yaml --force
+        
+        # Run MLflow Project with --no-conda to use existing environment
         echo "📊 Executing MLflow Project with parameters:"
         echo "  - test_size: $TEST_SIZE"
         echo "  - experiment_name: $EXPERIMENT_NAME"
@@ -111,6 +123,7 @@ jobs:
         echo "  - commit_sha: ${{ github.sha }}"
         
         mlflow run . \
+          --no-conda \
           --experiment-name="$EXPERIMENT_NAME" \
           -P test_size="$TEST_SIZE" \
           -P random_state=42 \
@@ -124,7 +137,43 @@ jobs:
           
         echo "✅ MLflow Project training completed successfully"
         
-    # Step 8: Validate Training Results
+    # Step 8b: Fallback - Run Direct Training if MLflow Project Fails
+    - name: Run Direct Training (Fallback)
+      if: failure()
+      run: |
+        cd MLProject
+        echo "🔄 MLflow Project failed, trying direct training..."
+        
+        # Set parameters from workflow inputs or defaults
+        TEST_SIZE="${{ github.event.inputs.test_size || '0.2' }}"
+        EXPERIMENT_NAME="${{ github.event.inputs.experiment_name || 'Heart_Disease_CI' }}"
+        HYPERPARAMETER_TUNING="${{ github.event.inputs.hyperparameter_tuning || 'false' }}"
+        
+        # Create mlruns directory
+        mkdir -p mlruns
+        
+        echo "📊 Executing direct training with parameters:"
+        echo "  - test_size: $TEST_SIZE"
+        echo "  - experiment_name: $EXPERIMENT_NAME"
+        echo "  - hyperparameter_tuning: $HYPERPARAMETER_TUNING"
+        echo "  - run_id: ${{ github.run_id }}"
+        echo "  - commit_sha: ${{ github.sha }}"
+        
+        # Run direct training script
+        python run_training_direct.py \
+          --test_size="$TEST_SIZE" \
+          --random_state=42 \
+          --max_iter=1000 \
+          --n_estimators=100 \
+          --experiment_name="$EXPERIMENT_NAME" \
+          --save_artifacts=true \
+          --run_id="${{ github.run_id }}" \
+          --commit_sha="${{ github.sha }}" \
+          --hyperparameter_tuning="$HYPERPARAMETER_TUNING"
+          
+        echo "✅ Direct training completed successfully"
+        
+    # Step 9: Validate Training Results
     - name: Validate Training Results
       run: |
         cd MLProject
@@ -156,7 +205,7 @@ jobs:
         echo "Artifacts in MLflow runs:"
         find mlruns -name "*.png" -o -name "*.pkl" -o -name "*.csv" | head -10
         
-    # Step 9: Upload Training Artifacts (Skilled requirement)
+    # Step 10: Upload Training Artifacts (Skilled requirement)
     - name: Upload Training Artifacts
       uses: actions/upload-artifact@v4
       with:
@@ -170,7 +219,7 @@ jobs:
           MLProject/training_summary.json
         retention-days: 30
         
-    # Step 10: Commit Artifacts to Repository (Skilled requirement)
+    # Step 11: Commit Artifacts to Repository (Skilled requirement)
     - name: Commit Artifacts to Repository
       run: |
         cd MLProject
@@ -207,7 +256,7 @@ jobs:
         git commit -m "Add training artifacts for run ${{ github.run_id }}" || echo "No changes to commit"
         git push || echo "Push failed or no changes"
         
-    # Step 11: Create MLflow Model Package
+    # Step 12: Create MLflow Model Package
     - name: Create MLflow Model Package
       run: |
         cd MLProject
