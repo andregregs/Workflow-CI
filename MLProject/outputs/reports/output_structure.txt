@@ -1,0 +1,25 @@
+
+OUTPUT DIRECTORY STRUCTURE
+==========================
+
+📁 D:\LaskarAI\latihan\Membangun Sistem Machine Learning\Workflow-CI\MLProject\outputs/
+├── 📁 artifacts/           # Feature importance CSVs, model metadata
+├── 📁 models/              # Trained model files (.pkl)
+├── 📁 visualizations/      # Plots, charts, confusion matrices
+├── 📁 reports/             # Summary reports, comparisons
+└── 📁 mlruns/              # MLflow tracking data
+
+CONTENTS:
+--------
+Artifacts: 2 files
+Models: 4 files  
+Visualizations: 10 files
+Reports: 2 files
+MLflow runs: 0 directories
+
+ACCESS:
+-------
+- View results: ls D:\LaskarAI\latihan\Membangun Sistem Machine Learning\Workflow-CI\MLProject\outputs
+- MLflow UI: mlflow ui --backend-store-uri file://D:\LaskarAI\latihan\Membangun Sistem Machine Learning\Workflow-CI\MLProject\mlruns
+- Reports: cat D:\LaskarAI\latihan\Membangun Sistem Machine Learning\Workflow-CI\MLProject\outputs\reports/training_summary.json
+- Models: ls D:\LaskarAI\latihan\Membangun Sistem Machine Learning\Workflow-CI\MLProject\outputs\models/*.pkl

@@ -8,6 +8,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+from pathlib import Path
 
 import mlflow
 import mlflow.sklearn
@@ -27,6 +28,37 @@ warnings.filterwarnings('ignore')
 # Set style for plots
 plt.style.use('seaborn-v0_8')
 sns.set_palette("husl")
+
+# Global output directory configuration
+OUTPUT_DIR = Path("outputs")
+ARTIFACTS_DIR = OUTPUT_DIR / "artifacts"
+MODELS_DIR = OUTPUT_DIR / "models"
+VISUALIZATIONS_DIR = OUTPUT_DIR / "visualizations"
+REPORTS_DIR = OUTPUT_DIR / "reports"
+MLRUNS_DIR = OUTPUT_DIR / "mlruns"
+
+def setup_output_directories():
+    """
+    Create all necessary output directories
+    """
+    # Use simpler directory names to avoid path issues
+    directories = [OUTPUT_DIR, ARTIFACTS_DIR, MODELS_DIR, VISUALIZATIONS_DIR, REPORTS_DIR, MLRUNS_DIR]
+    
+    for directory in directories:
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            print(f"⚠️  Warning: Could not create directory {directory}: {str(e)}")
+    
+    print(f"📁 Output directories created:")
+    print(f"   - Main output: {OUTPUT_DIR}")
+    print(f"   - Artifacts: {ARTIFACTS_DIR}")
+    print(f"   - Models: {MODELS_DIR}")
+    print(f"   - Visualizations: {VISUALIZATIONS_DIR}")
+    print(f"   - Reports: {REPORTS_DIR}")
+    print(f"   - MLflow runs: {MLRUNS_DIR}")
+    
+    return OUTPUT_DIR
 
 def load_heart_disease_data():
     """
@@ -130,7 +162,7 @@ def calculate_comprehensive_metrics(y_true, y_pred, y_pred_proba=None):
 
 def create_model_visualizations(model, model_name, X_test, y_test, y_pred, y_pred_proba=None, save_artifacts=True):
     """
-    Create and save model visualizations
+    Create and save model visualizations in organized directories
     """
     if not save_artifacts:
         return
@@ -146,9 +178,10 @@ def create_model_visualizations(model, model_name, X_test, y_test, y_pred, y_pre
         plt.xlabel('Predicted')
         plt.ylabel('Actual')
         
-        cm_filename = f'confusion_matrix_{model_name.lower().replace(" ", "_")}.png'
+        # Save to visualizations directory
+        cm_filename = VISUALIZATIONS_DIR / f'confusion_matrix_{model_name.lower().replace(" ", "_")}.png'
         plt.savefig(cm_filename, dpi=300, bbox_inches='tight')
-        mlflow.log_artifact(cm_filename)
+        mlflow.log_artifact(str(cm_filename))
         plt.close()
         
         # 2. ROC Curve (if probabilities available)
@@ -165,9 +198,9 @@ def create_model_visualizations(model, model_name, X_test, y_test, y_pred, y_pre
             plt.legend()
             plt.grid(True, alpha=0.3)
             
-            roc_filename = f'roc_curve_{model_name.lower().replace(" ", "_")}.png'
+            roc_filename = VISUALIZATIONS_DIR / f'roc_curve_{model_name.lower().replace(" ", "_")}.png'
             plt.savefig(roc_filename, dpi=300, bbox_inches='tight')
-            mlflow.log_artifact(roc_filename)
+            mlflow.log_artifact(str(roc_filename))
             plt.close()
         
         # 3. Feature Importance (if available)
@@ -184,15 +217,19 @@ def create_model_visualizations(model, model_name, X_test, y_test, y_pred, y_pre
             plt.title(f'Top 15 Feature Importances - {model_name}')
             plt.tight_layout()
             
-            fi_filename = f'feature_importance_{model_name.lower().replace(" ", "_")}.png'
+            # Save visualization
+            fi_filename = VISUALIZATIONS_DIR / f'feature_importance_{model_name.lower().replace(" ", "_")}.png'
             plt.savefig(fi_filename, dpi=300, bbox_inches='tight')
-            mlflow.log_artifact(fi_filename)
+            mlflow.log_artifact(str(fi_filename))
             plt.close()
             
-            # Save feature importance as CSV
-            fi_csv_filename = f'feature_importance_{model_name.lower().replace(" ", "_")}.csv'
+            # Save feature importance as CSV in artifacts directory
+            fi_csv_filename = ARTIFACTS_DIR / f'feature_importance_{model_name.lower().replace(" ", "_")}.csv'
             importance_df.to_csv(fi_csv_filename, index=False)
-            mlflow.log_artifact(fi_csv_filename)
+            mlflow.log_artifact(str(fi_csv_filename))
+            
+            print(f"   📊 Saved visualizations to {VISUALIZATIONS_DIR}")
+            print(f"   📋 Saved feature importance to {fi_csv_filename}")
             
     except Exception as e:
         print(f"⚠️  Error creating visualizations for {model_name}: {str(e)}")
@@ -261,7 +298,8 @@ def train_model(model, model_name, X_train, X_test, y_train, y_test, save_artifa
 @click.option('--commit_sha', default='unknown', type=str, help='Git commit SHA')
 @click.option('--hyperparameter_tuning', default=False, type=bool, help='Enable hyperparameter tuning')
 @click.option('--cv_folds', default=5, type=int, help='Cross-validation folds for tuning')
-def main(test_size, random_state, max_iter, n_estimators, experiment_name, save_artifacts, run_id, commit_sha, hyperparameter_tuning, cv_folds):
+@click.option('--output_dir', default='outputs', type=str, help='Output directory for all results')
+def main(test_size, random_state, max_iter, n_estimators, experiment_name, save_artifacts, run_id, commit_sha, hyperparameter_tuning, cv_folds, output_dir):
     """
     Heart Disease ML Training Pipeline for MLflow Project
     """
@@ -269,8 +307,39 @@ def main(test_size, random_state, max_iter, n_estimators, experiment_name, save_
     print("HEART DISEASE ML TRAINING - MLFLOW PROJECT")
     print("="*60)
     
+    # Update global output directory if specified
+    global OUTPUT_DIR, ARTIFACTS_DIR, MODELS_DIR, VISUALIZATIONS_DIR, REPORTS_DIR, MLRUNS_DIR
+    if output_dir != 'outputs':
+        OUTPUT_DIR = Path(output_dir)
+        ARTIFACTS_DIR = OUTPUT_DIR / "artifacts"
+        MODELS_DIR = OUTPUT_DIR / "models"
+        VISUALIZATIONS_DIR = OUTPUT_DIR / "visualizations"
+        REPORTS_DIR = OUTPUT_DIR / "reports"
+        MLRUNS_DIR = OUTPUT_DIR / "mlruns"
+    else:
+        # Use current working directory for simpler paths
+        OUTPUT_DIR = Path.cwd() / "outputs"
+        ARTIFACTS_DIR = OUTPUT_DIR / "artifacts"
+        MODELS_DIR = OUTPUT_DIR / "models"
+        VISUALIZATIONS_DIR = OUTPUT_DIR / "visualizations"
+        REPORTS_DIR = OUTPUT_DIR / "reports"
+        MLRUNS_DIR = Path.cwd() / "mlruns"  # Keep mlruns in current directory
+    
+    # Setup output directories
+    setup_output_directories()
+    
+    # Set MLflow tracking URI ke path tanpa spasi
+    mlruns_path = Path("C:/mlruns")
+    mlruns_path.mkdir(parents=True, exist_ok=True)
+    mlflow.set_tracking_uri(f"file:///{mlruns_path.as_posix()}")
+    print(f"🔗 MLflow tracking URI: {mlflow.get_tracking_uri()}")
+    
     # Set MLflow experiment
-    mlflow.set_experiment(experiment_name)
+    try:
+        mlflow.set_experiment(experiment_name)
+    except Exception as e:
+        print(f"⚠️  Warning: Could not set MLflow experiment: {str(e)}")
+        print("   Continuing with default experiment...")
     
     with mlflow.start_run() as run:
         # Log run metadata
@@ -281,6 +350,7 @@ def main(test_size, random_state, max_iter, n_estimators, experiment_name, save_
         mlflow.log_param("github_run_id", run_id)
         mlflow.log_param("commit_sha", commit_sha)
         mlflow.log_param("hyperparameter_tuning", hyperparameter_tuning)
+        mlflow.log_param("output_directory", str(OUTPUT_DIR))
         
         # Load data
         df = load_heart_disease_data()
@@ -344,6 +414,12 @@ def main(test_size, random_state, max_iter, n_estimators, experiment_name, save_
                         best_accuracy = metrics['accuracy']
                         best_model = model_name
                         
+                    # Save individual model to models directory
+                    model_filename = MODELS_DIR / f"{model_name.lower().replace(' ', '_')}_model.pkl"
+                    joblib.dump(trained_model, model_filename)
+                    mlflow.log_artifact(str(model_filename))
+                    print(f"   💾 Model saved to {model_filename}")
+                        
             except Exception as e:
                 print(f"❌ Error training {model_name}: {str(e)}")
                 continue
@@ -365,29 +441,84 @@ def main(test_size, random_state, max_iter, n_estimators, experiment_name, save_
             'best_model': best_model,
             'best_accuracy': best_accuracy,
             'models_trained': len(results),
+            'output_directory': str(OUTPUT_DIR),
+            'artifacts_directory': str(ARTIFACTS_DIR),
+            'models_directory': str(MODELS_DIR),
+            'visualizations_directory': str(VISUALIZATIONS_DIR),
+            'reports_directory': str(REPORTS_DIR),
             'results': results
         }
         
-        # Save summary
-        with open('training_summary.json', 'w') as f:
+        # Save summary to reports directory
+        summary_file = REPORTS_DIR / 'training_summary.json'
+        with open(summary_file, 'w') as f:
             json.dump(summary, f, indent=2, default=str)
         
-        mlflow.log_artifact('training_summary.json')
+        mlflow.log_artifact(str(summary_file))
+        print(f"📋 Training summary saved to {summary_file}")
         
         # Create performance comparison
         if results:
             comparison_df = pd.DataFrame(results).T
             comparison_df = comparison_df.round(4)
-            comparison_df.to_csv('model_comparison.csv')
-            mlflow.log_artifact('model_comparison.csv')
             
-            print("\n📊 Model Performance Summary:")
+            # Save to reports directory
+            comparison_file = REPORTS_DIR / 'model_comparison.csv'
+            comparison_df.to_csv(comparison_file)
+            mlflow.log_artifact(str(comparison_file))
+            
+            print(f"📊 Model comparison saved to {comparison_file}")
+            print("\n📈 Model Performance Summary:")
             print(comparison_df[['accuracy', 'roc_auc', 'f1_score', 'matthews_corrcoef']].to_string())
         
+        # Create directory structure summary
+        structure_summary = create_output_structure_summary()
+        structure_file = REPORTS_DIR / 'output_structure.txt'
+        with open(structure_file, 'w', encoding='utf-8') as f:
+            f.write(structure_summary)
+        mlflow.log_artifact(str(structure_file))
+        
         print(f"\n🎉 Training completed successfully!")
-        print(f"Best Model: {best_model} (Accuracy: {best_accuracy:.4f})")
-        print(f"MLflow Run ID: {run.info.run_id}")
-        print(f"Artifacts saved: {save_artifacts}")
+        print(f"📁 All outputs saved to: {OUTPUT_DIR}")
+        print(f"🏆 Best Model: {best_model} (Accuracy: {best_accuracy:.4f})")
+        print(f"🔗 MLflow Run ID: {run.info.run_id}")
+        print(f"📊 MLflow UI: mlflow ui --backend-store-uri {mlflow.get_tracking_uri()}")
+        
+        # Print final directory structure
+        print(f"\n📂 Output Directory Structure:")
+        print(structure_summary)
+
+def create_output_structure_summary():
+    """
+    Create a summary of the output directory structure
+    """
+    structure = f"""
+OUTPUT DIRECTORY STRUCTURE
+==========================
+
+📁 {OUTPUT_DIR}/
+├── 📁 artifacts/           # Feature importance CSVs, model metadata
+├── 📁 models/              # Trained model files (.pkl)
+├── 📁 visualizations/      # Plots, charts, confusion matrices
+├── 📁 reports/             # Summary reports, comparisons
+└── 📁 mlruns/              # MLflow tracking data
+
+CONTENTS:
+--------
+Artifacts: {len(list(ARTIFACTS_DIR.glob('*')))} files
+Models: {len(list(MODELS_DIR.glob('*')))} files  
+Visualizations: {len(list(VISUALIZATIONS_DIR.glob('*')))} files
+Reports: {len(list(REPORTS_DIR.glob('*')))} files
+MLflow runs: {len(list(MLRUNS_DIR.glob('*')))} directories
+
+ACCESS:
+-------
+- View results: ls {OUTPUT_DIR}
+- MLflow UI: mlflow ui --backend-store-uri file://{MLRUNS_DIR.absolute()}
+- Reports: cat {REPORTS_DIR}/training_summary.json
+- Models: ls {MODELS_DIR}/*.pkl
+"""
+    return structure
 
 if __name__ == "__main__":
     main()
