@@ -113,11 +113,10 @@ jobs:
         # Create mlruns directory
         mkdir -p mlruns
         
-        # Install dependencies from conda.yaml manually
-        echo "📦 Installing dependencies from conda.yaml..."
-        conda env create -f conda.yaml || conda env update -f conda.yaml
+        # Set MLflow tracking URI
+        export MLFLOW_TRACKING_URI=file:./mlruns
         
-        # Run MLflow Project with --no-conda to use existing environment
+        # Run MLflow Project (removed --no-conda as it's not a valid option)
         echo "📊 Executing MLflow Project with parameters:"
         echo "  - test_size: $TEST_SIZE"
         echo "  - experiment_name: $EXPERIMENT_NAME"
@@ -126,7 +125,6 @@ jobs:
         echo "  - commit_sha: ${{ github.sha }}"
         
         mlflow run . \
-          --no-conda \
           --experiment-name="$EXPERIMENT_NAME" \
           -P test_size="$TEST_SIZE" \
           -P random_state=42 \
