@@ -137,42 +137,6 @@ jobs:
           
         echo "✅ MLflow Project training completed successfully"
         
-    # Step 8b: Fallback - Run Direct Training if MLflow Project Fails
-    - name: Run Direct Training (Fallback)
-      if: failure()
-      run: |
-        cd MLProject
-        echo "🔄 MLflow Project failed, trying direct training..."
-        
-        # Set parameters from workflow inputs or defaults
-        TEST_SIZE="${{ github.event.inputs.test_size || '0.2' }}"
-        EXPERIMENT_NAME="${{ github.event.inputs.experiment_name || 'Heart_Disease_CI' }}"
-        HYPERPARAMETER_TUNING="${{ github.event.inputs.hyperparameter_tuning || 'false' }}"
-        
-        # Create mlruns directory
-        mkdir -p mlruns
-        
-        echo "📊 Executing direct training with parameters:"
-        echo "  - test_size: $TEST_SIZE"
-        echo "  - experiment_name: $EXPERIMENT_NAME"
-        echo "  - hyperparameter_tuning: $HYPERPARAMETER_TUNING"
-        echo "  - run_id: ${{ github.run_id }}"
-        echo "  - commit_sha: ${{ github.sha }}"
-        
-        # Run direct training script
-        python run_training_direct.py \
-          --test_size="$TEST_SIZE" \
-          --random_state=42 \
-          --max_iter=1000 \
-          --n_estimators=100 \
-          --experiment_name="$EXPERIMENT_NAME" \
-          --save_artifacts=true \
-          --run_id="${{ github.run_id }}" \
-          --commit_sha="${{ github.sha }}" \
-          --hyperparameter_tuning="$HYPERPARAMETER_TUNING"
-          
-        echo "✅ Direct training completed successfully"
-        
     # Step 9: Validate Training Results
     - name: Validate Training Results
       run: |
